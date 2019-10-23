@@ -5,6 +5,5 @@
         android:id="@+id/settingsButton"
         android:title=""
         app:showAsAction="always"
-        android:icon="@drawable/ic_action_settings"
-        />
+        android:icon="@drawable/ic_action_settings" />
 </menu>

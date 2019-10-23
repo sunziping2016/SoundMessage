@@ -43,4 +43,5 @@ public class MainActivity extends AppCompatActivity {
                 sendText.getText().toString() + '\n');
         sendText.getText().clear();
     }
+
 }
