@@ -7,6 +7,7 @@
     <string name="main_settings_header">设置</string>
 
     <!-- Main Preferences -->
+    <string name="receiver_enabled_key">receiverEnabled</string>
     <string name="receiver_enabled_title">接收器</string>
     <string name="receiver_enabled_on">开启接受模块</string>
     <string name="receiver_enabled_off">关闭接受模块</string>

@@ -1,22 +1,36 @@
 package io.szp.soundmessage;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.preference.PreferenceManager;
 
 import android.annotation.SuppressLint;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements SharedPreferences.OnSharedPreferenceChangeListener {
+    private boolean receiverEnabled;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+        receiverEnabled = preferences.getBoolean(getString(R.string.receiver_enabled_key), true);
+        preferences.registerOnSharedPreferenceChangeListener(this);
+    }
+
+    @Override
+    protected void onDestroy() {
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+        preferences.unregisterOnSharedPreferenceChangeListener(this);
+        super.onDestroy();
     }
 
     @Override
@@ -44,4 +58,12 @@ public class MainActivity extends AppCompatActivity {
         sendText.getText().clear();
     }
 
+    @Override
+    public void onSharedPreferenceChanged(SharedPreferences preferences, String key) {
+        Log.d("MainActivity", key + " changed");
+        if (key.equals(getString(R.string.receiver_enabled_key))) {
+            receiverEnabled = preferences.getBoolean(
+                    getString(R.string.receiver_enabled_key), true);
+        }
+    }
 }
