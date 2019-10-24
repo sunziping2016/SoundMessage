@@ -21,11 +21,25 @@
         app:title="@string/main_settings_header">
 
         <SwitchPreferenceCompat
+            app:defaultValue="true"
             app:iconSpaceReserved="false"
             app:key="@string/receiver_enabled_key"
             app:summaryOff="@string/receiver_enabled_off"
             app:summaryOn="@string/receiver_enabled_on"
             app:title="@string/receiver_enabled_title" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/receiver_settings_header">
+
+        <EditTextPreference
+            app:defaultValue="2"
+            app:iconSpaceReserved="false"
+            app:key="@string/receiver_buffer_factor_key"
+            app:title="@string/receiver_buffer_factor_title"
+            app:useSimpleSummaryProvider="true" />
 
     </PreferenceCategory>
 
