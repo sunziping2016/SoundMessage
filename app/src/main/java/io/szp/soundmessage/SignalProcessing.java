@@ -1,6 +1,6 @@
 package io.szp.soundmessage;
 
-import java.util.List;
+import java.util.Deque;
 
 public class SignalProcessing {
     public static final int[] FACTORS = new int[] { 2, 3, 5, 7 };
@@ -66,10 +66,64 @@ public class SignalProcessing {
         index.value = intIndex;
     }
 
-    public static float mean(List<Integer> input) {
+    public static float mean(Deque<Integer> input) {
         float sum = 0;
         for (Integer i: input)
             sum += i;
         return sum / input.size();
+    }
+
+    public static float mean(float[] input) {
+        float sum = 0;
+        for (float i: input)
+            sum += i;
+        return sum / input.length;
+    }
+
+    public static float variance(Deque<Integer> input, float mean) {
+        float sum = 0;
+        for (Integer i: input) {
+            float diff = i - mean;
+            sum += diff * diff;
+        }
+        return sum / input.size();
+    }
+
+    private static final float[] QPSK_PHASES = new float[] {
+            (float) (1 * Math.PI / 4),
+            (float) (7 * Math.PI / 4),
+            (float) (3 * Math.PI / 4),
+            (float) (5 * Math.PI / 4)
+    };
+    private static final int[] QPSK_INDEX = new int[] { 3, 1, 0, 2 };
+
+    public static void qpskModulate(int[] input, Box<float[]> real, Box<float[]> imag) {
+        real.value = new float[input.length];
+        imag.value = new float[input.length];
+        for (int i = 0; i < input.length; ++i) {
+            float phase = QPSK_PHASES[input[i]];
+            real.value[i] = (float) Math.cos(phase);
+            imag.value[i] = (float) Math.sin(phase);
+        }
+    }
+
+    public static int[] qpskDemodulate(float[] real, float[] imag) {
+        int[] result = new int[real.length];
+        for (int i = 0; i < real.length; ++i) {
+            int index = (int) Math.round((Math.atan2(imag[i], real[i]) +
+                    Math.PI - Math.PI/4) / (Math.PI/2));
+            result[i] = QPSK_INDEX[index];
+        }
+        return result;
+    }
+
+    public static void main(String[] args) {
+        float[] x = new float[] {1,2,3,4,5};
+        float[] y = new float[] {2,1,3};
+        Box<float[]> cor = new Box<>();
+        Box<int[]> lags = new Box<>();
+        xcorr(x, y, cor, lags);
+        for (int i = 0; i < cor.value.length; ++i)
+            System.out.println(cor.value[i]);
     }
 }

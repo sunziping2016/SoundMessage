@@ -21,8 +21,10 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -36,18 +38,20 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     // Common Parameter
     public int subcarrierNum = 10;
     public int pilotSubcarrierNum = 2;
-    public int symbolLen = 1024;
+    public int symbolLen = 2048;
     public float cyclicPrefixFactor = 0.1f;
 
     private float sampleFreq = 44100;
-    private float carrierFreq = 1000;
-    private float preambleLowFreq = 2000;
-    private float preambleHighFreq = 4000;
-    private int startPreambleNum = 2;
-    private int endPreambleNum = 2;
+    private float carrierFreq = 16000;
+    private float preambleLowFreq = 8000;
+    private float preambleHighFreq = 16000;
+    private int startPreambleNum = 3;
+    private int endPreambleNum = 3;
 
     // Receiver Parameter
     private float startEndThreshold = 10;
+    private float lagVarianceLimit = 10;
+    private int symbolNumLimit = 16;
 
     // Computer parameter
     public int dataSubcarrierNum;
@@ -58,15 +62,16 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     public int cyclicPrefixEnd;
     public int realSymbolLen;
 
-    private float[] preambleSymbolTime;
     private float[] startPreambleSymbol, endPreambleSymbol;
+
+    private int signalBufferLenLimit;
 
     // Receiver data
     private float[] previousWindow;
     private List<Float> signalBuffer;
     private boolean started;
-    private List<Integer> starts;
-    private List<Integer> ends;
+    private Deque<Integer> starts;
+    private Deque<Integer> ends;
 
     // Other fields
     private boolean permissionToRecordAccepted = false;
@@ -214,16 +219,17 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         cyclicPrefixStart = symbolLen - cyclicPrefixLen;
         cyclicPrefixEnd = symbolLen;
         realSymbolLen = symbolLen + cyclicPrefixLen;
-        preambleSymbolTime = new float[symbolLen];
+        float[] preambleSymbolTime = new float[symbolLen];
         float sampleTime = 1 / sampleFreq;
         for (int i = 0; i < symbolLen; ++i)
             preambleSymbolTime[i] = i * sampleTime;
         startPreambleSymbol = SignalProcessing.chirp(preambleLowFreq, preambleHighFreq, preambleSymbolTime);
         endPreambleSymbol = SignalProcessing.chirp(preambleHighFreq, preambleLowFreq, preambleSymbolTime);
+        signalBufferLenLimit = realSymbolLen * symbolNumLimit + endPreambleNum * symbolLen;
         signalBuffer = new ArrayList<>();
         started = false;
-        starts = new ArrayList<>();
-        ends = new ArrayList<>();
+        starts = new ArrayDeque<>();
+        ends = new ArrayDeque<>();
     }
 
     protected void updateReceiverBufferSize() {
@@ -272,79 +278,236 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             System.arraycopy(previousWindow, 0, sigReceiveWindow, 0, symbolLen);
             System.arraycopy(window, 0, sigReceiveWindow, symbolLen, symbolLen);
             boolean skipBuffer = false;
-            Box<float[]> startCor = new Box<>();
-            Box<int []> startLags = new Box<>();
-            SignalProcessing.xcorr(sigReceiveWindow, startPreambleSymbol, startCor, startLags);
-            Box<Float> startCorMax = new Box<>();
-            Box<Integer> index = new Box<>();
-            SignalProcessing.max(startCor.value, startCorMax, index);
-            int startLag = startLags.value[index.value];
-            if (startCorMax.value > startEndThreshold && 0 <= startLag && startLag < symbolLen) {
-                starts.add(startLag);
-                runOnUiThread(() -> {
-                    log(String.format("startCorMax: %f index: %d", startCorMax.value, startLag));
-                });
-                if (starts.size() == startPreambleNum) {
-                    int mean = Math.round(SignalProcessing.mean(starts));
+            if (!started) {
+                Box<float[]> startCor = new Box<>();
+                Box<int[]> startLags = new Box<>();
+                SignalProcessing.xcorr(sigReceiveWindow, startPreambleSymbol, startCor, startLags);
+                Box<Float> startCorMax = new Box<>();
+                Box<Integer> index = new Box<>();
+                SignalProcessing.max(startCor.value, startCorMax, index);
+                int startLag = startLags.value[index.value];
+                if (startCorMax.value > startEndThreshold && 0 <= startLag && startLag < symbolLen) {
+                    starts.add(startLag);
                     runOnUiThread(() -> {
-                        log(String.format("started: %d", mean));
+                        log(String.format("startCorMax: %f index: %d", startCorMax.value, startLag));
                     });
-                    for (int i = mean; i < symbolLen; ++i)
-                        signalBuffer.add(sigReceiveWindow[i]);
-                    started = true;
-                    skipBuffer = true;
-                }
-            } else {
-                starts = new ArrayList<>();
-            }
-            Box<float[]> endCor = new Box<>();
-            Box<int []> endLags = new Box<>();
-            SignalProcessing.xcorr(sigReceiveWindow, endPreambleSymbol, endCor, endLags);
-            Box<Float> endCorMax = new Box<>();
-            SignalProcessing.max(endCor.value, endCorMax, index);
-            int endLag = endLags.value[index.value];
-            if (endCorMax.value > startEndThreshold && 0 < endLag && endLag <= symbolLen) {
-                ends.add(endLag);
-                runOnUiThread(() -> {
-                    log(String.format("endCorMax: %f index: %d", endCorMax.value, endLag));
-                });
-                if (ends.size() == endPreambleNum) {
-                    int mean = Math.round(SignalProcessing.mean(ends));
-                    runOnUiThread(() -> {
-                        log(String.format("ended: %d", mean));
-                    });
-                    for (int i = 0; i < mean; ++i)
-                        signalBuffer.add(sigReceiveWindow[i]);
-                    int length = signalBuffer.size() - endPreambleNum * symbolLen;
-                    if (length > 0) {
-                        float[] signal = new float[length];
-                        for (int i = 0; i < length; ++i) {
-                            signal[i] = signalBuffer.get(i + symbolLen);
+                    if (starts.size() == startPreambleNum) {
+                        float mean = SignalProcessing.mean(starts);
+                        float var = SignalProcessing.variance(starts, mean);
+                        runOnUiThread(() -> {
+                            log(String.format("startCandidate mean: %f var: %f", mean, var));
+                        });
+                        if (var <= lagVarianceLimit) {
+                            int roundMean = Math.round(mean);
+                            runOnUiThread(() -> {
+                                log(String.format("started: %d", roundMean));
+                            });
+                            for (int i = roundMean; i < symbolLen; ++i)
+                                signalBuffer.add(sigReceiveWindow[i]);
+                            started = true;
+                            skipBuffer = true;
                         }
-                        processSignal(signal);
+                    } else if (starts.size() > startPreambleNum) {
+                        starts.pop();
                     }
-                    signalBuffer = new ArrayList<>();
-                    started = false;
+                } else {
+                    starts = new ArrayDeque<>();
                 }
             } else {
-                ends = new ArrayList<>();
-            }
-            if (started && !skipBuffer) {
-                for (int i = 0; i < symbolLen; ++i)
-                    signalBuffer.add(sigReceiveWindow[i]);
+                Box<float[]> endCor = new Box<>();
+                Box<int[]> endLags = new Box<>();
+                SignalProcessing.xcorr(sigReceiveWindow, endPreambleSymbol, endCor, endLags);
+                Box<Float> endCorMax = new Box<>();
+                Box<Integer> index = new Box<>();
+                SignalProcessing.max(endCor.value, endCorMax, index);
+                int endLag = endLags.value[index.value];
+                if (endCorMax.value > startEndThreshold && 0 < endLag && endLag <= symbolLen) {
+                    ends.add(endLag);
+                    runOnUiThread(() -> {
+                        log(String.format("endCorMax: %f index: %d", endCorMax.value, endLag));
+                    });
+                    if (ends.size() == endPreambleNum) {
+                        float mean = SignalProcessing.mean(ends);
+                        float var = SignalProcessing.variance(ends, mean);
+                        runOnUiThread(() -> {
+                            log(String.format("endCandidate mean: %f var: %f", mean, var));
+                        });
+                        if (var <= lagVarianceLimit) {
+                            int roundMean = Math.round(mean);
+                            runOnUiThread(() -> {
+                                log(String.format("ended: %d", roundMean));
+                            });
+                            for (int i = 0; i < roundMean; ++i)
+                                signalBuffer.add(sigReceiveWindow[i]);
+                            int length = signalBuffer.size() - endPreambleNum * symbolLen;
+                            if (length > 0) {
+                                float[] signal = new float[length];
+                                for (int i = 0; i < length; ++i) {
+                                    signal[i] = signalBuffer.get(i + symbolLen);
+                                }
+                                processSignalBuffer(signal);
+                            }
+                            signalBuffer = new ArrayList<>();
+                            started = false;
+                        }
+                    } else if (ends.size() > endPreambleNum) {
+                        ends.pop();
+                    }
+                } else {
+                    ends = new ArrayDeque<>();
+                }
+                if (started) {
+                    for (int i = 0; i < symbolLen; ++i)
+                        signalBuffer.add(sigReceiveWindow[i]);
+                    if (signalBuffer.size() > signalBufferLenLimit) {
+                        signalBuffer = new ArrayList<>();
+                        started = false;
+                    }
+                }
             }
             previousWindow = window;
-            //plotView.setTimeData(window);
-            plotView.setFrequencyData(startCor.value);
-            // plotView.setFrequencyData(freqAbs);
+            plotView.setTimeData(window);
             plotView.postInvalidate();
         }
 
         @SuppressLint("DefaultLocale")
-        private void processSignal(float[] signal) {
+        private void processSignalBuffer(float[] signalBuffer) {
+            int realSignalLen = signalBuffer.length;
+            int symbolNum = Math.round((float) realSignalLen / realSymbolLen);
+            int expectedSignalLen = symbolNum * realSymbolLen;
             runOnUiThread(() -> {
-                log(String.format("signal length: %d", signal.length));
+                log(String.format("real sig len: %d expected sig len: %d",
+                        realSignalLen, expectedSignalLen));
             });
+            if (realSignalLen == expectedSignalLen) {
+                processReceivedSignal(signalBuffer, symbolNum);
+                return;
+            }
+            float[] receivedSignal = new float[expectedSignalLen];
+            if (realSignalLen < expectedSignalLen) {
+                int paddingLeft = (int) Math.round(Math.floor(
+                        (float) (expectedSignalLen - realSignalLen) / 2));
+                System.arraycopy(signalBuffer, 0, receivedSignal, paddingLeft, realSignalLen);
+            } else {
+                int clipLeft = (int) Math.round(Math.floor(
+                        (float) (realSignalLen - expectedSignalLen) / 2));
+                System.arraycopy(signalBuffer, clipLeft, receivedSignal, 0, expectedSignalLen);
+            }
+            processReceivedSignal(receivedSignal, symbolNum);
+        }
+
+        @SuppressLint("DefaultLocale")
+        private void processReceivedSignal(float[] receivedSignal, int symbolNum) {
+            // Multiply carrier wave to extract signal
+            float[] realReceivedSignal = new float[receivedSignal.length];
+            float[] imagReceivedSignal = new float[receivedSignal.length];
+            for (int i = 0; i < receivedSignal.length; ++i) {
+                float t = i / sampleFreq;
+                float x = (float) (2 * Math.PI * carrierFreq * t);
+                realReceivedSignal[i] = receivedSignal[i] * (float) Math.cos(x);
+                imagReceivedSignal[i] = receivedSignal[i] * (float) -Math.sin(x);
+            }
+            // Reshape to matrix
+            float[][] realReceivedFullMatrix = new float[symbolNum][];
+            float[][] imagReceivedFullMatrix = new float[symbolNum][];
+            for (int i = 0; i < symbolNum; ++i) {
+                realReceivedFullMatrix[i] = new float[symbolLen];
+                imagReceivedFullMatrix[i] = new float[symbolLen];
+                System.arraycopy(realReceivedSignal, i * realSymbolLen + cyclicPrefixLen,
+                        realReceivedFullMatrix[i], 0, symbolLen);
+                System.arraycopy(imagReceivedSignal, i * realSymbolLen + cyclicPrefixLen,
+                        imagReceivedFullMatrix[i], 0, symbolLen);
+            }
+            // FFT
+            float[][] realFFTData = new float[symbolNum][];
+            float[][] imagFFTData = new float[symbolNum][];
+            for (int i = 0; i < symbolNum; ++i) {
+                FFT.fft(realReceivedFullMatrix[i], imagReceivedFullMatrix[i]);
+                realFFTData[i] = new float[subcarrierNum];
+                imagFFTData[i] = new float[subcarrierNum];
+                System.arraycopy(realReceivedFullMatrix[i], 0, realFFTData[i], 0, subcarrierNum);
+                System.arraycopy(imagReceivedFullMatrix[i], 0, imagFFTData[i], 0, subcarrierNum);
+            }
+            int dataNum = dataSubcarrierNum * symbolNum;
+            int pilotNum = pilotSubcarrierNum * symbolNum;
+            // Reshape to serial and split data and pilot
+            float[] realReceivedSerialData = new float[dataNum];
+            float[] imagReceivedSerialData = new float[dataNum];
+            float[] realReceivedSerialPilot = new float[pilotNum];
+            float[] imagReceivedSerialPilot = new float[pilotNum];
+            for (int i = 0; i < symbolNum; ++i) {
+                for (int j = 0; j < dataSubcarrierNum; ++j) {
+                    realReceivedSerialData[i * dataSubcarrierNum + j] =
+                            realFFTData[i][dataSubcarrierIndices[j]];
+                    imagReceivedSerialData[i * dataSubcarrierNum + j] =
+                            imagFFTData[i][dataSubcarrierIndices[j]];
+                }
+                for (int j = 0; j < pilotSubcarrierNum; ++j) {
+                    realReceivedSerialPilot[i * pilotSubcarrierNum + j] =
+                            realFFTData[i][pilotSubcarrierIndices[j]];
+                    imagReceivedSerialPilot[i * pilotSubcarrierNum + j] =
+                            imagFFTData[i][pilotSubcarrierIndices[j]];
+                }
+            }
+            runOnUiThread(() -> {
+                StringBuilder str = new StringBuilder();
+                for (int i = 0; i < dataNum; ++i) {
+                    str.append(String.format("%f %f,", realReceivedSerialData[i],
+                            imagReceivedSerialData[i]));
+                }
+                log(String.format("serial data: %s", str.toString()));
+            });
+            // Calculate signal shift
+            Box<float[]> realQPSKModulatedPilot = new Box<>();
+            Box<float[]> imagQPSKModulatedPilot = new Box<>();
+            generatePilot(pilotNum, realQPSKModulatedPilot, imagQPSKModulatedPilot);
+            float[] realDelta = new float[pilotNum];
+            float[] imagDelta = new float[pilotNum];
+            // delta = QPSKModulatedPilot / receivedSerialPilot
+            for (int i = 0; i < pilotNum; ++i) {
+                float factor = 1 / (realReceivedSerialPilot[i] * realReceivedSerialPilot[i] +
+                        imagReceivedSerialPilot[i] * imagReceivedSerialPilot[i]);
+                realDelta[i] = factor * (realQPSKModulatedPilot.value[i] * realReceivedSerialPilot[i] +
+                        imagQPSKModulatedPilot.value[i] * imagReceivedSerialPilot[i]);
+                imagDelta[i] = factor * (imagQPSKModulatedPilot.value[i] * realReceivedSerialPilot[i] -
+                        realQPSKModulatedPilot.value[i] * imagReceivedSerialPilot[i]);
+            }
+            float realMeanDelta = SignalProcessing.mean(realDelta);
+            float imagMeanDelta = SignalProcessing.mean(imagDelta);
+            runOnUiThread(() -> {
+                log(String.format("mean delta: %f %f", realMeanDelta, imagMeanDelta));
+            });
+            // Recover signal
+            float[] realReceivedSerialDataCorrected = new float[dataNum];
+            float[] imagReceivedSerialDataCorrected = new float[dataNum];
+            // receivedSerialDataCorrected = receivedSerialData * meanDelta
+            for (int i = 0; i < dataNum; ++i) {
+                realReceivedSerialDataCorrected[i] = realReceivedSerialData[i] * realMeanDelta -
+                        imagReceivedSerialData[i] * imagMeanDelta;
+                imagReceivedSerialDataCorrected[i] = realReceivedSerialData[i] * imagMeanDelta +
+                        imagReceivedSerialData[i] * realMeanDelta;
+            }
+            // Demodulate
+            int[] qpskDemodulatedData = SignalProcessing.qpskDemodulate(
+                    realReceivedSerialDataCorrected, imagReceivedSerialDataCorrected);
+            processData(qpskDemodulatedData);
+        }
+
+        private void processData(int[] data) {
+            runOnUiThread(() -> {
+                StringBuilder str = new StringBuilder();
+                for (int i: data) {
+                    str.append(i);
+                    str.append(' ');
+                }
+                log(String.format("data: %s", str.toString()));
+            });
+        }
+
+        private void generatePilot(int length, Box<float[]> real, Box<float[]> imag) {
+            // Use zero
+            int[] input = new int[length];
+            SignalProcessing.qpskModulate(input, real, imag);
         }
 
         private String getBufferReadFailureReason(int errorCode) {
