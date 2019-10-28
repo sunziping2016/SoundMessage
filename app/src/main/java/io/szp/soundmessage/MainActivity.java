@@ -35,6 +35,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
     private static final float SHORT_MAX = 32768;
 
+    // Default value
     // Common Parameter
     public int subcarrierNum = 10;
     public int pilotSubcarrierNum = 2;
@@ -75,7 +76,6 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
 
     // Other fields
     private boolean permissionToRecordAccepted = false;
-    private int receiverBufferFactor;
     private int receiverBufferSize;
     private boolean receiverEnabled;
 
@@ -86,6 +86,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     TextView contentText;
     private PlotView plotView;
 
+    // Default value
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -97,11 +98,35 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         plotView = findViewById(R.id.plotView);
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         preferences.registerOnSharedPreferenceChangeListener(this);
-        receiverBufferFactor = Integer.parseInt(preferences.getString(
-                getString(R.string.receiver_buffer_factor_key), "2"));
+        subcarrierNum = Integer.parseInt(preferences.getString(
+                getString(R.string.subcarrier_num_key), "10"));
+        pilotSubcarrierNum = Integer.parseInt(preferences.getString(
+                getString(R.string.pilot_subcarrier_num_key), "2"));
+        symbolLen = Integer.parseInt(preferences.getString(
+                getString(R.string.symbol_len_key), "2048"));
+        cyclicPrefixFactor = Float.parseFloat(preferences.getString(
+                getString(R.string.cyclic_prefix_factor_key), "0.1"));
+        sampleFreq = Float.parseFloat(preferences.getString(
+                getString(R.string.sample_freq_key), "44100"));
+        carrierFreq = Float.parseFloat(preferences.getString(
+                getString(R.string.carrier_freq_key), "16000"));
+        preambleLowFreq = Float.parseFloat(preferences.getString(
+                getString(R.string.preamble_low_freq_key), "8000"));
+        preambleHighFreq = Float.parseFloat(preferences.getString(
+                getString(R.string.preamble_high_freq_key), "16000"));
+        startPreambleNum = Integer.parseInt(preferences.getString(
+                getString(R.string.start_preamble_num_key), "3"));
+        endPreambleNum = Integer.parseInt(preferences.getString(
+                getString(R.string.end_preamble_num_key), "3"));
+        startEndThreshold = Float.parseFloat(preferences.getString(
+                getString(R.string.start_end_threshold_key), "10"));
+        lagVarianceLimit = Float.parseFloat(preferences.getString(
+                getString(R.string.lag_variance_limit_key), "10"));
+        symbolNumLimit = Integer.parseInt(preferences.getString(
+                getString(R.string.symbol_num_limit_key), "16"));
         updateReceiverBufferSize();
         setReceiverEnabled(preferences.getBoolean(getString(R.string.receiver_enabled_key), true));
-        updateParameter();
+        updateReceiverParameter();
     }
 
     @Override
@@ -149,33 +174,219 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         sendText.getText().clear();
     }
 
+    // Default value
     @Override
     public void onSharedPreferenceChanged(SharedPreferences preferences, String key) {
         Log.d("MainActivity", key + " changed");
         if (key.equals(getString(R.string.receiver_enabled_key))) {
             setReceiverEnabled(preferences.getBoolean(key, true));
-        } else if (key.equals(getString(R.string.receiver_buffer_factor_key))) {
+        } else if (key.equals(getString(R.string.subcarrier_num_key))) {
             boolean commitBack = false;
             try {
-                int newReceiverBufferFactor = Integer.parseInt(preferences.getString(key, "2"));
-                if (newReceiverBufferFactor < 1) {
-                    receiverBufferFactor = 1;
+                int newSubcarrierNum = Integer.parseInt(preferences.getString(key, "10"));
+                if (newSubcarrierNum <= pilotSubcarrierNum) {
+                    subcarrierNum = pilotSubcarrierNum + 1;
                     commitBack = true;
-                } else if (newReceiverBufferFactor > 10) {
-                    receiverBufferFactor = 10;
+                } else if (newSubcarrierNum > symbolLen) {
+                    subcarrierNum = symbolLen;
                     commitBack = true;
                 } else {
-                    receiverBufferFactor = newReceiverBufferFactor;
+                    subcarrierNum = newSubcarrierNum;
                 }
             } catch (NumberFormatException e) {
                 commitBack = true;
             }
             if (commitBack) {
                 SharedPreferences.Editor editor = preferences.edit();
-                editor.putString(key, String.valueOf(receiverBufferFactor));
+                editor.putString(key, String.valueOf(subcarrierNum));
                 editor.apply();
             }
-            updateReceiverBufferSize();
+        } else if(key.equals(getString(R.string.pilot_subcarrier_num_key))) {
+            boolean commitBack = false;
+            try {
+                int newPilotSubcarrierNum = Integer.parseInt(preferences.getString(key, "2"));
+                if (newPilotSubcarrierNum < 1) {
+                    pilotSubcarrierNum = 1;
+                    commitBack = true;
+                } else if (newPilotSubcarrierNum >= subcarrierNum) {
+                    pilotSubcarrierNum = subcarrierNum - 1;
+                    commitBack = true;
+                } else {
+                    pilotSubcarrierNum = newPilotSubcarrierNum;
+                }
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(pilotSubcarrierNum));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.symbol_len_key))) {
+            boolean commitBack = false;
+            try {
+                int newSymbolLen = Integer.parseInt(preferences.getString(key, "2048"));
+                if (newSymbolLen < subcarrierNum) {
+                    symbolLen = subcarrierNum;
+                    commitBack = true;
+                } else {
+                    symbolLen = newSymbolLen;
+                }
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(symbolLen));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.cyclic_prefix_factor_key))) {
+            boolean commitBack = false;
+            try {
+                float newCyclicPrefixFactor = Float.parseFloat(preferences.getString(key, "0.1"));
+                if (newCyclicPrefixFactor < 0) {
+                    cyclicPrefixFactor = 0;
+                    commitBack = true;
+                } else if (newCyclicPrefixFactor > 1) {
+                    cyclicPrefixFactor = 1;
+                    commitBack = true;
+                } else {
+                    cyclicPrefixFactor = newCyclicPrefixFactor;
+                }
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(cyclicPrefixFactor));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.sample_freq_key))) {
+            boolean commitBack = false;
+            try {
+                sampleFreq = Float.parseFloat(preferences.getString(key, "44100"));
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(sampleFreq));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.carrier_freq_key))) {
+            boolean commitBack = false;
+            try {
+                carrierFreq = Float.parseFloat(preferences.getString(key, "16000"));
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(carrierFreq));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.preamble_low_freq_key))) {
+            boolean commitBack = false;
+            try {
+                preambleLowFreq = Float.parseFloat(preferences.getString(key, "8000"));
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(preambleLowFreq));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.preamble_high_freq_key))) {
+            boolean commitBack = false;
+            try {
+                preambleHighFreq = Float.parseFloat(preferences.getString(key, "16000"));
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(preambleHighFreq));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.start_preamble_num_key))) {
+            boolean commitBack = false;
+            try {
+                int newStartPreambleNum = Integer.parseInt(preferences.getString(key, "3"));
+                if (newStartPreambleNum < 1) {
+                    startPreambleNum = 1;
+                    commitBack = true;
+                } else {
+                    startPreambleNum = newStartPreambleNum;
+                }
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(startPreambleNum));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.end_preamble_num_key))) {
+            boolean commitBack = false;
+            try {
+                int newEndPreambleNum = Integer.parseInt(preferences.getString(key, "3"));
+                if (newEndPreambleNum < 1) {
+                    endPreambleNum = 1;
+                    commitBack = true;
+                } else {
+                    endPreambleNum = newEndPreambleNum;
+                }
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(endPreambleNum));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.start_end_threshold_key))) {
+            boolean commitBack = false;
+            try {
+                startEndThreshold = Float.parseFloat(preferences.getString(key, "10"));
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(startEndThreshold));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.lag_variance_limit_key))) {
+            boolean commitBack = false;
+            try {
+                lagVarianceLimit = Float.parseFloat(preferences.getString(key, "10"));
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(lagVarianceLimit));
+                editor.apply();
+            }
+        } else if (key.equals(getString(R.string.symbol_num_limit_key))) {
+            boolean commitBack = false;
+            try {
+                int newSymbolNumLimit = Integer.parseInt(preferences.getString(key, "16"));
+                if (newSymbolNumLimit < 1) {
+                    symbolNumLimit = 1;
+                    commitBack = true;
+                } else {
+                    symbolNumLimit = newSymbolNumLimit;
+                }
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(symbolNumLimit));
+                editor.apply();
+            }
         }
     }
 
@@ -199,7 +410,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         }
     }
 
-    protected void updateParameter() {
+    protected void updateReceiverParameter() {
         dataSubcarrierNum = subcarrierNum - pilotSubcarrierNum;
         pilotSubcarrierIndices = new int[pilotSubcarrierNum];
         for (int i = 0; i < pilotSubcarrierNum; ++i)
@@ -234,7 +445,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
 
     protected void updateReceiverBufferSize() {
         receiverBufferSize = AudioRecord.getMinBufferSize(SAMPLING_RATE_IN_HZ,
-                CHANNEL_CONFIG, AUDIO_FORMAT) * receiverBufferFactor;
+                CHANNEL_CONFIG, AUDIO_FORMAT);
     }
 
     private class ReceiverRunnable implements Runnable {
@@ -268,6 +479,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             }
         }
 
+        @SuppressWarnings({"LambdaCanBeReplacedWithAnonymous", "CodeBlock2Expr"})
         @SuppressLint("DefaultLocale")
         private void processWindow(float[] window) {
             if (previousWindow == null) {
@@ -277,7 +489,6 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             float[] sigReceiveWindow = new float[symbolLen * 2];
             System.arraycopy(previousWindow, 0, sigReceiveWindow, 0, symbolLen);
             System.arraycopy(window, 0, sigReceiveWindow, symbolLen, symbolLen);
-            boolean skipBuffer = false;
             if (!started) {
                 Box<float[]> startCor = new Box<>();
                 Box<int[]> startLags = new Box<>();
@@ -305,7 +516,6 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                             for (int i = roundMean; i < symbolLen; ++i)
                                 signalBuffer.add(sigReceiveWindow[i]);
                             started = true;
-                            skipBuffer = true;
                         }
                     } else if (starts.size() > startPreambleNum) {
                         starts.pop();
@@ -370,6 +580,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             plotView.postInvalidate();
         }
 
+        @SuppressWarnings("CodeBlock2Expr")
         @SuppressLint("DefaultLocale")
         private void processSignalBuffer(float[] signalBuffer) {
             int realSignalLen = signalBuffer.length;
@@ -396,6 +607,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             processReceivedSignal(receivedSignal, symbolNum);
         }
 
+        @SuppressWarnings("CodeBlock2Expr")
         @SuppressLint("DefaultLocale")
         private void processReceivedSignal(float[] receivedSignal, int symbolNum) {
             // Multiply carrier wave to extract signal

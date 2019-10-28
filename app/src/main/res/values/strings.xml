@@ -5,6 +5,7 @@
 
     <!-- Preference Titles -->
     <string name="main_settings_header">设置</string>
+    <string name="common_settings_header">通用</string>
     <string name="receiver_settings_header">接受</string>
 
     <!-- Main Preferences -->
@@ -13,7 +14,44 @@
     <string name="receiver_enabled_on">开启接受模块</string>
     <string name="receiver_enabled_off">关闭接受模块</string>
 
-    <!-- Receiver Preferences -->
-    <string name="receiver_buffer_factor_key">receiverBufferFactor</string>
-    <string name="receiver_buffer_factor_title">缓冲区大小系数（1–10）</string>
+    <!-- Common Preferences -->
+    <string name="subcarrier_num_key">subcarrierNum</string>
+    <string name="subcarrier_num_title">子载波总数</string>
+
+    <string name="pilot_subcarrier_num_key">pilotSubcarrierNum</string>
+    <string name="pilot_subcarrier_num_title">Pilot载波数目</string>
+
+    <string name="symbol_len_key">symbolLen</string>
+    <string name="symbol_len_title">符号长度</string>
+
+    <string name="cyclic_prefix_factor_key">cyclicPrefixFactor</string>
+    <string name="cyclic_prefix_factor_title">循环前缀比例（0–1）</string>
+
+    <string name="sample_freq_key">sampleFreq</string>
+    <string name="sample_freq_title">采样频率</string>
+
+    <string name="carrier_freq_key">carrierFreq</string>
+    <string name="carrier_freq_title">载波频率</string>
+
+    <string name="preamble_low_freq_key">preambleLowFreq</string>
+    <string name="preamble_low_freq_title">Chirq最低频率</string>
+
+    <string name="preamble_high_freq_key">preambleHighFreq</string>
+    <string name="preamble_high_freq_title">Chirq最高频率</string>
+
+    <string name="start_preamble_num_key">startPreambleNum</string>
+    <string name="start_preamble_num_title">起始Chirq个数</string>
+
+    <string name="end_preamble_num_key">endPreambleNum</string>
+    <string name="end_preamble_num_title">终止Chirq个数</string>
+
+    <!-- Receiver preferences -->
+    <string name="start_end_threshold_key">startEndThreshold</string>
+    <string name="start_end_threshold_title">起始终止强度阈值</string>
+
+    <string name="lag_variance_limit_key">lagVarianceLimit</string>
+    <string name="lag_variance_limit_title">偏移方差限制</string>
+
+    <string name="symbol_num_limit_key">symbolNumLimit</string>
+    <string name="symbol_num_limit_title">包长度限制</string>
 </resources>

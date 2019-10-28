@@ -16,6 +16,7 @@
 
 <PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <!-- Default value -->
     <PreferenceCategory
         app:iconSpaceReserved="false"
         app:title="@string/main_settings_header">
@@ -32,13 +33,103 @@
 
     <PreferenceCategory
         app:iconSpaceReserved="false"
-        app:title="@string/receiver_settings_header">
+        app:title="@string/common_settings_header">
+
+        <EditTextPreference
+            app:defaultValue="10"
+            app:iconSpaceReserved="false"
+            app:key="@string/subcarrier_num_key"
+            app:title="@string/subcarrier_num_title"
+            app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
             app:defaultValue="2"
             app:iconSpaceReserved="false"
-            app:key="@string/receiver_buffer_factor_key"
-            app:title="@string/receiver_buffer_factor_title"
+            app:key="@string/pilot_subcarrier_num_key"
+            app:title="@string/pilot_subcarrier_num_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="2048"
+            app:iconSpaceReserved="false"
+            app:key="@string/symbol_len_key"
+            app:title="@string/symbol_len_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="0.1"
+            app:iconSpaceReserved="false"
+            app:key="@string/cyclic_prefix_factor_key"
+            app:title="@string/cyclic_prefix_factor_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="44100"
+            app:iconSpaceReserved="false"
+            app:key="@string/sample_freq_key"
+            app:title="@string/sample_freq_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="16000"
+            app:iconSpaceReserved="false"
+            app:key="@string/carrier_freq_key"
+            app:title="@string/carrier_freq_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="8000"
+            app:iconSpaceReserved="false"
+            app:key="@string/preamble_low_freq_key"
+            app:title="@string/preamble_low_freq_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="16000"
+            app:iconSpaceReserved="false"
+            app:key="@string/preamble_high_freq_key"
+            app:title="@string/preamble_high_freq_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="3"
+            app:iconSpaceReserved="false"
+            app:key="@string/start_preamble_num_key"
+            app:title="@string/start_preamble_num_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="3"
+            app:iconSpaceReserved="false"
+            app:key="@string/end_preamble_num_key"
+            app:title="@string/end_preamble_num_title"
+            app:useSimpleSummaryProvider="true" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/receiver_settings_header">
+
+        <EditTextPreference
+            app:defaultValue="10"
+            app:iconSpaceReserved="false"
+            app:key="@string/start_end_threshold_key"
+            app:title="@string/start_end_threshold_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="10"
+            app:iconSpaceReserved="false"
+            app:key="@string/lag_variance_limit_key"
+            app:title="@string/lag_variance_limit_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="16"
+            app:iconSpaceReserved="false"
+            app:key="@string/symbol_num_limit_key"
+            app:title="@string/symbol_num_limit_title"
             app:useSimpleSummaryProvider="true" />
 
     </PreferenceCategory>
