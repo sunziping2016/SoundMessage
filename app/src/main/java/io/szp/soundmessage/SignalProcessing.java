@@ -80,13 +80,20 @@ public class SignalProcessing {
         return sum / input.length;
     }
 
-    public static float variance(Deque<Integer> input, float mean) {
+    public static float meanAbs(float[] input) {
+        float sum = 0;
+        for (float i: input)
+            sum += Math.abs(i);
+        return sum / input.length;
+    }
+
+    public static float stdev(Deque<Integer> input, float mean) {
         float sum = 0;
         for (Integer i: input) {
             float diff = i - mean;
             sum += diff * diff;
         }
-        return sum / input.size();
+        return (float) Math.sqrt(sum / input.size());
     }
 
     private static final float[] QPSK_PHASES = new float[] {
@@ -97,24 +104,72 @@ public class SignalProcessing {
     };
     private static final int[] QPSK_INDEX = new int[] { 3, 1, 0, 2 };
 
-    public static void qpskModulate(int[] input, Box<float[]> real, Box<float[]> imag) {
-        real.value = new float[input.length];
-        imag.value = new float[input.length];
-        for (int i = 0; i < input.length; ++i) {
-            float phase = QPSK_PHASES[input[i]];
-            real.value[i] = (float) Math.cos(phase);
-            imag.value[i] = (float) Math.sin(phase);
-        }
+    public interface PSK {
+        void modulate(int[] input, Box<float[]> real, Box<float[]> imag);
+        int[] demodulate(float[] real, float[] imag);
     }
 
-    public static int[] qpskDemodulate(float[] real, float[] imag) {
-        int[] result = new int[real.length];
-        for (int i = 0; i < real.length; ++i) {
-            int index = (int) Math.round((Math.atan2(imag[i], real[i]) +
-                    Math.PI - Math.PI/4) / (Math.PI/2));
-            result[i] = QPSK_INDEX[index];
+    public static final PSK bpsk = new PSK() {
+        @Override
+        public void modulate(int[] input, Box<float[]> real, Box<float[]> imag) {
+            // TODO
         }
-        return result;
+
+        @Override
+        public int[] demodulate(float[] real, float[] imag) {
+            // TODO
+            return new int[0];
+        }
+    };
+
+    public static final PSK qpsk = new PSK() {
+        @Override
+        public void modulate(int[] input, Box<float[]> real, Box<float[]> imag) {
+            real.value = new float[input.length];
+            imag.value = new float[input.length];
+            for (int i = 0; i < input.length; ++i) {
+                float phase = QPSK_PHASES[input[i]];
+                real.value[i] = (float) Math.cos(phase);
+                imag.value[i] = (float) Math.sin(phase);
+            }
+        }
+
+        @Override
+        public int[] demodulate(float[] real, float[] imag) {
+            int[] result = new int[real.length];
+            for (int i = 0; i < real.length; ++i) {
+                int index = (int) Math.round((Math.atan2(imag[i], real[i]) +
+                        Math.PI - Math.PI/4) / (Math.PI/2));
+                result[i] = QPSK_INDEX[index];
+            }
+            return result;
+        }
+    };
+
+    public static final PSK psk8 = new PSK() {
+        @Override
+        public void modulate(int[] input, Box<float[]> real, Box<float[]> imag) {
+            // TODO
+        }
+
+        @Override
+        public int[] demodulate(float[] real, float[] imag) {
+            // TODO
+            return new int[0];
+        }
+    };
+
+    public static PSK getPSK(int num) {
+        switch (num) {
+            case 2:
+                return bpsk;
+            case 4:
+                return qpsk;
+            case 8:
+                return psk8;
+            default:
+                throw new AssertionError("Unknown PSK method");
+        }
     }
 
     public static void main(String[] args) {

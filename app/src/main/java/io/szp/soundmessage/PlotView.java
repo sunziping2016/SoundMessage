@@ -8,16 +8,15 @@ import android.util.AttributeSet;
 import android.view.View;
 
 public class PlotView extends View {
-    private static final int realHeight = 400;
     private static final float timeScale = 500;
-    // private static final float frequencyScale = 10;
-    private static final float frequencyScale = 50;
+    private static final float xcorrScale = 5;
 
-    private int height, width;
-    private Paint baseLinePaint, timeLinePaint, frequencyLinePaint;
+    private int width, height;
+    private Paint baseLinePaint, timeLinePaint, startXcorrPaint, endXcorrPaint;
 
     private float[] timeData;
-    private float[] frequencyData;
+    private float[] startXcorrData;
+    private float[] endXcorrData;
 
     public PlotView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -25,17 +24,22 @@ public class PlotView extends View {
         baseLinePaint.setAntiAlias(true);
         baseLinePaint.setStyle(Paint.Style.STROKE);
         baseLinePaint.setColor(Color.GRAY);
-        baseLinePaint.setStrokeWidth(5);
+        baseLinePaint.setStrokeWidth(2);
         timeLinePaint = new Paint();
         timeLinePaint.setAntiAlias(true);
         timeLinePaint.setStyle(Paint.Style.STROKE);
         timeLinePaint.setColor(Color.RED);
         timeLinePaint.setStrokeWidth(2);
-        frequencyLinePaint = new Paint();
-        frequencyLinePaint.setAntiAlias(true);
-        frequencyLinePaint.setStyle(Paint.Style.STROKE);
-        frequencyLinePaint.setColor(Color.BLUE);
-        frequencyLinePaint.setStrokeWidth(2);
+        startXcorrPaint = new Paint();
+        startXcorrPaint.setAntiAlias(true);
+        startXcorrPaint.setStyle(Paint.Style.STROKE);
+        startXcorrPaint.setColor(Color.BLUE);
+        startXcorrPaint.setStrokeWidth(2);
+        endXcorrPaint = new Paint();
+        endXcorrPaint.setAntiAlias(true);
+        endXcorrPaint.setStyle(Paint.Style.STROKE);
+        endXcorrPaint.setColor(Color.GREEN);
+        endXcorrPaint.setStrokeWidth(2);
     }
 
     @Override
@@ -48,8 +52,9 @@ public class PlotView extends View {
     @Override
     synchronized protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        float baseHeight = (float) realHeight / 2;
-        canvas.drawLine(0, baseHeight, width, baseHeight, baseLinePaint);
+        float baseHeight = (float) height / 2;
+        if (timeData != null || startXcorrData != null || endXcorrData != null)
+            canvas.drawLine(0, baseHeight, width, baseHeight, baseLinePaint);
         if (timeData != null && timeData.length != 0) {
             float stepWidth = (float) width / timeData.length;
             for (int i = 0; i < timeData.length - 1; ++i) {
@@ -58,12 +63,20 @@ public class PlotView extends View {
                         timeLinePaint);
             }
         }
-        if (frequencyData != null && frequencyData.length != 0) {
-            float stepWidth = (float) width / frequencyData.length;
-            for (int i = 0; i < frequencyData.length - 1; ++i) {
-                canvas.drawLine(stepWidth * i, baseHeight + frequencyScale * frequencyData[i],
-                        stepWidth * (i + 1), baseHeight + frequencyScale * frequencyData[i + 1],
-                        frequencyLinePaint);
+        if (startXcorrData != null && startXcorrData.length != 0) {
+            float stepWidth = (float) width / startXcorrData.length;
+            for (int i = 0; i < startXcorrData.length - 1; ++i) {
+                canvas.drawLine(stepWidth * i, baseHeight + xcorrScale * startXcorrData[i],
+                        stepWidth * (i + 1), baseHeight + xcorrScale * startXcorrData[i + 1],
+                        startXcorrPaint);
+            }
+        }
+        if (endXcorrData != null && endXcorrData.length != 0) {
+            float stepWidth = (float) width / endXcorrData.length;
+            for (int i = 0; i < endXcorrData.length - 1; ++i) {
+                canvas.drawLine(stepWidth * i, baseHeight + xcorrScale * endXcorrData[i],
+                        stepWidth * (i + 1), baseHeight + xcorrScale * endXcorrData[i + 1],
+                        endXcorrPaint);
             }
         }
     }
@@ -72,8 +85,11 @@ public class PlotView extends View {
         timeData = data;
     }
 
-    synchronized void setFrequencyData(float[] data) {
-        frequencyData = data;
+    synchronized void setStartXcorrData(float[] data) {
+        startXcorrData = data;
     }
 
+    synchronized void setEndXcorrData(float[] data) {
+        endXcorrData = data;
+    }
 }

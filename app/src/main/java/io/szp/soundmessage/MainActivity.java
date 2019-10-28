@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class MainActivity extends AppCompatActivity implements SharedPreferences.OnSharedPreferenceChangeListener {
     private static final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
@@ -34,9 +35,23 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
     private static final float SHORT_MAX = 32768;
+    private static final String START_SEND_TEXT = "sendText";
+    private static final String START_CONTENT_TEXT = "contentText";
+    private static final String[] LOG_LEVEL_STRINGS = new String[] {
+            "error", "warn", "info", "debug"
+    };
+    enum LogLevel { ERROR, WARN, INFO, DEBUG };
+
 
     // Default value
+    // UI Parameter
+    public static AtomicInteger logLevel = new AtomicInteger(0);
+    public static AtomicBoolean drawTime = new AtomicBoolean(false);
+    public static AtomicBoolean drawStartXcorr = new AtomicBoolean(false);
+    public static AtomicBoolean drawEndXcorr = new AtomicBoolean(false);
+
     // Common Parameter
+    public int pskModulate = 4;
     public int subcarrierNum = 10;
     public int pilotSubcarrierNum = 2;
     public int symbolLen = 2048;
@@ -51,10 +66,15 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
 
     // Receiver Parameter
     private float startEndThreshold = 10;
-    private float lagVarianceLimit = 10;
+    private float lagStdevLimit = 10;
     private int symbolNumLimit = 16;
 
-    // Computer parameter
+    // Sender Parameter
+    private float spaceFactor = 0;
+
+    // Computed parameter
+    public int bits;
+    public SignalProcessing.PSK pskMethod;
     public int dataSubcarrierNum;
     public int[] pilotSubcarrierIndices;
     public int[] dataSubcarrierIndices;
@@ -95,9 +115,24 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         setContentView(R.layout.activity_main);
         sendText = findViewById(R.id.sendText);
         contentText = findViewById(R.id.contentText);
+        if (savedInstanceState != null) {
+            sendText.setText(savedInstanceState.getString(START_SEND_TEXT, ""));
+            contentText.setText(savedInstanceState.getString(START_CONTENT_TEXT, ""));
+        }
         plotView = findViewById(R.id.plotView);
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         preferences.registerOnSharedPreferenceChangeListener(this);
+        logLevel.set(findInStringArray(LOG_LEVEL_STRINGS, preferences.getString(
+                getString(R.string.log_level_key), "error")));
+        if (logLevel.get() == -1)
+            throw new AssertionError("Unknown log level");
+        drawTime.set(preferences.getBoolean(getString(R.string.draw_time_enabled_key), false));
+        drawStartXcorr.set(preferences.getBoolean(
+                getString(R.string.draw_start_xcorr_enabled_key), false));
+        drawEndXcorr.set(preferences.getBoolean(
+                getString(R.string.draw_end_xcorr_enabled_key), false));
+        pskModulate = Integer.parseInt(preferences.getString(
+                getString(R.string.psk_modulate_key), "4"));
         subcarrierNum = Integer.parseInt(preferences.getString(
                 getString(R.string.subcarrier_num_key), "10"));
         pilotSubcarrierNum = Integer.parseInt(preferences.getString(
@@ -120,13 +155,17 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 getString(R.string.end_preamble_num_key), "3"));
         startEndThreshold = Float.parseFloat(preferences.getString(
                 getString(R.string.start_end_threshold_key), "10"));
-        lagVarianceLimit = Float.parseFloat(preferences.getString(
-                getString(R.string.lag_variance_limit_key), "10"));
+        lagStdevLimit = Float.parseFloat(preferences.getString(
+                getString(R.string.lag_stdev_limit_key), "10"));
         symbolNumLimit = Integer.parseInt(preferences.getString(
                 getString(R.string.symbol_num_limit_key), "16"));
+        spaceFactor = Float.parseFloat(preferences.getString(
+                getString(R.string.space_factor_key), "0"));
+        updateUIParameter();
         updateReceiverBufferSize();
-        setReceiverEnabled(preferences.getBoolean(getString(R.string.receiver_enabled_key), true));
         updateReceiverParameter();
+        updateSenderParameter();
+        setReceiverEnabled(preferences.getBoolean(getString(R.string.receiver_enabled_key), true));
     }
 
     @Override
@@ -134,6 +173,13 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         preferences.unregisterOnSharedPreferenceChangeListener(this);
         super.onDestroy();
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        outState.putString(START_SEND_TEXT, sendText.getText().toString());
+        outState.putString(START_CONTENT_TEXT, contentText.getText().toString());
+        super.onSaveInstanceState(outState);
     }
 
     @Override
@@ -147,7 +193,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                                            @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
+        if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION && grantResults.length > 0) {
             permissionToRecordAccepted = grantResults[0] == PackageManager.PERMISSION_GRANTED;
         }
         if (!permissionToRecordAccepted)
@@ -160,6 +206,8 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         if (id == R.id.settingsButton) {
             Intent intent = new Intent(this, SettingsActivity.class);
             startActivity(intent);
+        } else if (id == R.id.clearButton) {
+            contentText.setText("");
         }
         return super.onOptionsItemSelected(item);
     }
@@ -180,6 +228,22 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         Log.d("MainActivity", key + " changed");
         if (key.equals(getString(R.string.receiver_enabled_key))) {
             setReceiverEnabled(preferences.getBoolean(key, true));
+        } else if (key.equals(getString(R.string.log_level_key))) {
+            logLevel.set(findInStringArray(LOG_LEVEL_STRINGS, preferences.getString(key, "error")));
+            if (logLevel.get() == -1)
+                throw new AssertionError("Unknown log level");
+        } else if (key.equals(getString(R.string.draw_time_enabled_key))) {
+            drawTime.set(preferences.getBoolean(key, false));
+            updateUIParameter();
+        } else if (key.equals(getString(R.string.draw_start_xcorr_enabled_key))) {
+            drawStartXcorr.set(preferences.getBoolean(key, false));
+            updateUIParameter();
+        } else if (key.equals(getString(R.string.draw_end_xcorr_enabled_key))) {
+            drawEndXcorr.set(preferences.getBoolean(key, false));
+            updateUIParameter();
+        } else if (key.equals(getString(R.string.psk_modulate_key))) {
+            pskModulate = Integer.parseInt(preferences.getString(key, "4"));
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.subcarrier_num_key))) {
             boolean commitBack = false;
             try {
@@ -201,6 +265,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(subcarrierNum));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if(key.equals(getString(R.string.pilot_subcarrier_num_key))) {
             boolean commitBack = false;
             try {
@@ -222,6 +287,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(pilotSubcarrierNum));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.symbol_len_key))) {
             boolean commitBack = false;
             try {
@@ -240,6 +306,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(symbolLen));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.cyclic_prefix_factor_key))) {
             boolean commitBack = false;
             try {
@@ -261,6 +328,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(cyclicPrefixFactor));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.sample_freq_key))) {
             boolean commitBack = false;
             try {
@@ -273,6 +341,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(sampleFreq));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.carrier_freq_key))) {
             boolean commitBack = false;
             try {
@@ -285,6 +354,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(carrierFreq));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.preamble_low_freq_key))) {
             boolean commitBack = false;
             try {
@@ -297,6 +367,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(preambleLowFreq));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.preamble_high_freq_key))) {
             boolean commitBack = false;
             try {
@@ -309,6 +380,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(preambleHighFreq));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.start_preamble_num_key))) {
             boolean commitBack = false;
             try {
@@ -327,6 +399,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(startPreambleNum));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.end_preamble_num_key))) {
             boolean commitBack = false;
             try {
@@ -345,6 +418,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(endPreambleNum));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.start_end_threshold_key))) {
             boolean commitBack = false;
             try {
@@ -357,28 +431,24 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(startEndThreshold));
                 editor.apply();
             }
-        } else if (key.equals(getString(R.string.lag_variance_limit_key))) {
+            updateReceiverParameter();
+        } else if (key.equals(getString(R.string.lag_stdev_limit_key))) {
             boolean commitBack = false;
             try {
-                lagVarianceLimit = Float.parseFloat(preferences.getString(key, "10"));
+                lagStdevLimit = Float.parseFloat(preferences.getString(key, "10"));
             } catch (NumberFormatException e) {
                 commitBack = true;
             }
             if (commitBack) {
                 SharedPreferences.Editor editor = preferences.edit();
-                editor.putString(key, String.valueOf(lagVarianceLimit));
+                editor.putString(key, String.valueOf(lagStdevLimit));
                 editor.apply();
             }
+            updateReceiverParameter();
         } else if (key.equals(getString(R.string.symbol_num_limit_key))) {
             boolean commitBack = false;
             try {
-                int newSymbolNumLimit = Integer.parseInt(preferences.getString(key, "16"));
-                if (newSymbolNumLimit < 1) {
-                    symbolNumLimit = 1;
-                    commitBack = true;
-                } else {
-                    symbolNumLimit = newSymbolNumLimit;
-                }
+                symbolNumLimit = Integer.parseInt(preferences.getString(key, "16"));
             } catch (NumberFormatException e) {
                 commitBack = true;
             }
@@ -387,6 +457,20 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 editor.putString(key, String.valueOf(symbolNumLimit));
                 editor.apply();
             }
+            updateReceiverParameter();
+        } else if (key.equals(getString(R.string.space_factor_key))) {
+            boolean commitBack = false;
+            try {
+                spaceFactor = Float.parseFloat(preferences.getString(key, "0"));
+            } catch (NumberFormatException e) {
+                commitBack = true;
+            }
+            if (commitBack) {
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString(key, String.valueOf(spaceFactor));
+                editor.apply();
+            }
+            updateSenderParameter();
         }
     }
 
@@ -410,7 +494,19 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         }
     }
 
+    protected void updateUIParameter() {
+        if (!drawTime.get())
+            plotView.setTimeData(null);
+        if (!drawStartXcorr.get())
+            plotView.setStartXcorrData(null);
+        if (!drawEndXcorr.get())
+            plotView.setEndXcorrData(null);
+        plotView.invalidate();
+    }
+
     protected void updateReceiverParameter() {
+        bits = (int) Math.round(Math.log(pskModulate) / Math.log(2));
+        pskMethod = SignalProcessing.getPSK(pskModulate);
         dataSubcarrierNum = subcarrierNum - pilotSubcarrierNum;
         pilotSubcarrierIndices = new int[pilotSubcarrierNum];
         for (int i = 0; i < pilotSubcarrierNum; ++i)
@@ -430,9 +526,9 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         cyclicPrefixStart = symbolLen - cyclicPrefixLen;
         cyclicPrefixEnd = symbolLen;
         realSymbolLen = symbolLen + cyclicPrefixLen;
-        float[] preambleSymbolTime = new float[symbolLen];
+        float[] preambleSymbolTime = new float[realSymbolLen];
         float sampleTime = 1 / sampleFreq;
-        for (int i = 0; i < symbolLen; ++i)
+        for (int i = 0; i < realSymbolLen; ++i)
             preambleSymbolTime[i] = i * sampleTime;
         startPreambleSymbol = SignalProcessing.chirp(preambleLowFreq, preambleHighFreq, preambleSymbolTime);
         endPreambleSymbol = SignalProcessing.chirp(preambleHighFreq, preambleLowFreq, preambleSymbolTime);
@@ -443,6 +539,10 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         ends = new ArrayDeque<>();
     }
 
+    protected void updateSenderParameter() {
+        // Do nothing
+    }
+
     protected void updateReceiverBufferSize() {
         receiverBufferSize = AudioRecord.getMinBufferSize(SAMPLING_RATE_IN_HZ,
                 CHANNEL_CONFIG, AUDIO_FORMAT);
@@ -450,10 +550,16 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
 
     private class ReceiverRunnable implements Runnable {
 
+        @SuppressWarnings("LambdaCanBeReplacedWithAnonymous")
+        private void logOnUiThread(LogLevel level, String content) {
+            if (level.ordinal() <= logLevel.get())
+                runOnUiThread(() -> log(content));
+        }
+
+        @SuppressLint("DefaultLocale")
         @Override
         public void run() {
             short[] prevBuffer = new short[0], curBuffer = new short[receiverBufferSize];
-            float[] window = new float[symbolLen];
             while (receiverOn.get()) {
                 int read = 0;
                 while (receiverOn.get() && read != receiverBufferSize) {
@@ -469,56 +575,67 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 System.arraycopy(prevBuffer, 0, totalBuffer, 0, prevBuffer.length);
                 System.arraycopy(curBuffer, 0, totalBuffer, prevBuffer.length, curBuffer.length);
                 int bufferOffset = 0;
-                while (bufferOffset + symbolLen < totalBuffer.length) {
-                    for (int i = 0; i < symbolLen; ++i)
+                while (bufferOffset + realSymbolLen < totalBuffer.length) {
+                    float[] window = new float[realSymbolLen];
+                    for (int i = 0; i < realSymbolLen; ++i)
                         window[i] = totalBuffer[bufferOffset + i] / SHORT_MAX;
                     processWindow(window);
-                    bufferOffset += symbolLen;
+                    bufferOffset += realSymbolLen;
                 }
                 prevBuffer = Arrays.copyOfRange(totalBuffer, bufferOffset, totalBuffer.length);
             }
         }
 
-        @SuppressWarnings({"LambdaCanBeReplacedWithAnonymous", "CodeBlock2Expr"})
+        @SuppressWarnings({"LambdaCanBeReplacedWithAnonymous"})
         @SuppressLint("DefaultLocale")
         private void processWindow(float[] window) {
             if (previousWindow == null) {
                 previousWindow = window;
                 return;
             }
-            float[] sigReceiveWindow = new float[symbolLen * 2];
-            System.arraycopy(previousWindow, 0, sigReceiveWindow, 0, symbolLen);
-            System.arraycopy(window, 0, sigReceiveWindow, symbolLen, symbolLen);
+            boolean skipBuffer = false;
+            float[] sigReceiveWindow = new float[realSymbolLen * 2];
+            System.arraycopy(previousWindow, 0, sigReceiveWindow, 0, realSymbolLen);
+            System.arraycopy(window, 0, sigReceiveWindow, realSymbolLen, realSymbolLen);
             if (!started) {
                 Box<float[]> startCor = new Box<>();
                 Box<int[]> startLags = new Box<>();
                 SignalProcessing.xcorr(sigReceiveWindow, startPreambleSymbol, startCor, startLags);
+                float[] clippedStartCor = new float[realSymbolLen];
+                int[] clippedStartLags = new int[realSymbolLen];
+                System.arraycopy(startCor.value, startCor.value.length / 2,
+                        clippedStartCor, 0, realSymbolLen);
+                System.arraycopy(startLags.value, startLags.value.length / 2,
+                        clippedStartLags, 0, realSymbolLen);
                 Box<Float> startCorMax = new Box<>();
                 Box<Integer> index = new Box<>();
-                SignalProcessing.max(startCor.value, startCorMax, index);
-                int startLag = startLags.value[index.value];
-                if (startCorMax.value > startEndThreshold && 0 <= startLag && startLag < symbolLen) {
+                SignalProcessing.max(clippedStartCor, startCorMax, index);
+                float value = startCorMax.value / SignalProcessing.meanAbs(clippedStartCor);
+                int startLag = clippedStartLags[index.value];
+                if (value > startEndThreshold) {
                     starts.add(startLag);
-                    runOnUiThread(() -> {
-                        log(String.format("startCorMax: %f index: %d", startCorMax.value, startLag));
-                    });
+                    if (starts.size() > startPreambleNum) {
+                        starts.pop();
+                    }
+                    logOnUiThread(LogLevel.DEBUG, String.format("D: startCorMax: %f index: %d", value, startLag));
                     if (starts.size() == startPreambleNum) {
                         float mean = SignalProcessing.mean(starts);
-                        float var = SignalProcessing.variance(starts, mean);
-                        runOnUiThread(() -> {
-                            log(String.format("startCandidate mean: %f var: %f", mean, var));
-                        });
-                        if (var <= lagVarianceLimit) {
+                        float dev = SignalProcessing.stdev(starts, mean);
+                        logOnUiThread(LogLevel.DEBUG, String.format("D: startCandidate mean: %f dev: %f", mean, dev));
+                        if (dev <= lagStdevLimit) {
                             int roundMean = Math.round(mean);
-                            runOnUiThread(() -> {
-                                log(String.format("started: %d", roundMean));
-                            });
-                            for (int i = roundMean; i < symbolLen; ++i)
+                            logOnUiThread(LogLevel.INFO, String.format("I: started: %d", roundMean));
+                            signalBuffer = new ArrayList<>();
+                            for (int i = roundMean; i < realSymbolLen; ++i)
                                 signalBuffer.add(sigReceiveWindow[i]);
                             started = true;
+                            skipBuffer = true;
+                            logOnUiThread(LogLevel.DEBUG, String.format("D: start write: %d", realSymbolLen - roundMean));
                         }
-                    } else if (starts.size() > startPreambleNum) {
-                        starts.pop();
+                    }
+                    if (drawStartXcorr.get()) {
+                        plotView.setStartXcorrData(clippedStartCor);
+                        plotView.postInvalidate();
                     }
                 } else {
                     starts = new ArrayDeque<>();
@@ -527,69 +644,77 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 Box<float[]> endCor = new Box<>();
                 Box<int[]> endLags = new Box<>();
                 SignalProcessing.xcorr(sigReceiveWindow, endPreambleSymbol, endCor, endLags);
+                float[] clippedEndCor = new float[realSymbolLen];
+                int[] clippedEndLags = new int[realSymbolLen];
+                System.arraycopy(endCor.value, endCor.value.length / 2,
+                        clippedEndCor, 0, realSymbolLen);
+                System.arraycopy(endLags.value, endLags.value.length / 2,
+                        clippedEndLags, 0, realSymbolLen);
                 Box<Float> endCorMax = new Box<>();
                 Box<Integer> index = new Box<>();
-                SignalProcessing.max(endCor.value, endCorMax, index);
-                int endLag = endLags.value[index.value];
-                if (endCorMax.value > startEndThreshold && 0 < endLag && endLag <= symbolLen) {
+                SignalProcessing.max(clippedEndCor, endCorMax, index);
+                float value = endCorMax.value / SignalProcessing.meanAbs(clippedEndCor);
+                int endLag = clippedEndLags[index.value];
+                if (value > startEndThreshold) {
                     ends.add(endLag);
-                    runOnUiThread(() -> {
-                        log(String.format("endCorMax: %f index: %d", endCorMax.value, endLag));
-                    });
+                    if (ends.size() > endPreambleNum) {
+                        ends.pop();
+                    }
+                    logOnUiThread(LogLevel.DEBUG, String.format("D: endCorMax: %f index: %d", value, endLag));
                     if (ends.size() == endPreambleNum) {
                         float mean = SignalProcessing.mean(ends);
-                        float var = SignalProcessing.variance(ends, mean);
-                        runOnUiThread(() -> {
-                            log(String.format("endCandidate mean: %f var: %f", mean, var));
-                        });
-                        if (var <= lagVarianceLimit) {
+                        float dev = SignalProcessing.stdev(ends, mean);
+                        logOnUiThread(LogLevel.DEBUG, String.format("D: endCandidate mean: %f dev: %f", mean, dev));
+                        if (dev <= lagStdevLimit) {
                             int roundMean = Math.round(mean);
-                            runOnUiThread(() -> {
-                                log(String.format("ended: %d", roundMean));
-                            });
+                            logOnUiThread(LogLevel.INFO, String.format("I: ended: %d", roundMean));
                             for (int i = 0; i < roundMean; ++i)
                                 signalBuffer.add(sigReceiveWindow[i]);
-                            int length = signalBuffer.size() - endPreambleNum * symbolLen;
+                            logOnUiThread(LogLevel.DEBUG, String.format("D: start write: %d", roundMean));
+                            int length = signalBuffer.size() - endPreambleNum * realSymbolLen;
                             if (length > 0) {
                                 float[] signal = new float[length];
                                 for (int i = 0; i < length; ++i) {
-                                    signal[i] = signalBuffer.get(i + symbolLen);
+                                    signal[i] = signalBuffer.get(i + realSymbolLen);
                                 }
                                 processSignalBuffer(signal);
                             }
                             signalBuffer = new ArrayList<>();
                             started = false;
                         }
-                    } else if (ends.size() > endPreambleNum) {
-                        ends.pop();
+                    }
+                    if (drawEndXcorr.get()) {
+                        plotView.setEndXcorrData(clippedEndCor);
+                        plotView.postInvalidate();
                     }
                 } else {
                     ends = new ArrayDeque<>();
                 }
-                if (started) {
-                    for (int i = 0; i < symbolLen; ++i)
-                        signalBuffer.add(sigReceiveWindow[i]);
-                    if (signalBuffer.size() > signalBufferLenLimit) {
-                        signalBuffer = new ArrayList<>();
-                        started = false;
-                    }
+            }
+            if (started && !skipBuffer) {
+                for (int i = 0; i < realSymbolLen; ++i)
+                    signalBuffer.add(sigReceiveWindow[i]);
+                if (signalBufferLenLimit != 0 && signalBuffer.size() > signalBufferLenLimit) {
+                    signalBuffer = new ArrayList<>();
+                    started = false;
+                    logOnUiThread(LogLevel.WARN, "W: packet too long");
                 }
+                logOnUiThread(LogLevel.DEBUG, String.format("continue write: %d", realSymbolLen));
             }
             previousWindow = window;
-            plotView.setTimeData(window);
-            plotView.postInvalidate();
+            if (drawTime.get()) {
+                plotView.setTimeData(window);
+                plotView.postInvalidate();
+            }
         }
 
-        @SuppressWarnings("CodeBlock2Expr")
         @SuppressLint("DefaultLocale")
         private void processSignalBuffer(float[] signalBuffer) {
             int realSignalLen = signalBuffer.length;
             int symbolNum = Math.round((float) realSignalLen / realSymbolLen);
             int expectedSignalLen = symbolNum * realSymbolLen;
-            runOnUiThread(() -> {
-                log(String.format("real sig len: %d expected sig len: %d",
+            logOnUiThread(LogLevel.DEBUG, String.format("D: real sig len: %d expected sig len: %d",
                         realSignalLen, expectedSignalLen));
-            });
             if (realSignalLen == expectedSignalLen) {
                 processReceivedSignal(signalBuffer, symbolNum);
                 return;
@@ -607,7 +732,6 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             processReceivedSignal(receivedSignal, symbolNum);
         }
 
-        @SuppressWarnings("CodeBlock2Expr")
         @SuppressLint("DefaultLocale")
         private void processReceivedSignal(float[] receivedSignal, int symbolNum) {
             // Multiply carrier wave to extract signal
@@ -661,14 +785,6 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                             imagFFTData[i][pilotSubcarrierIndices[j]];
                 }
             }
-            runOnUiThread(() -> {
-                StringBuilder str = new StringBuilder();
-                for (int i = 0; i < dataNum; ++i) {
-                    str.append(String.format("%f %f,", realReceivedSerialData[i],
-                            imagReceivedSerialData[i]));
-                }
-                log(String.format("serial data: %s", str.toString()));
-            });
             // Calculate signal shift
             Box<float[]> realQPSKModulatedPilot = new Box<>();
             Box<float[]> imagQPSKModulatedPilot = new Box<>();
@@ -686,9 +802,8 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             }
             float realMeanDelta = SignalProcessing.mean(realDelta);
             float imagMeanDelta = SignalProcessing.mean(imagDelta);
-            runOnUiThread(() -> {
-                log(String.format("mean delta: %f %f", realMeanDelta, imagMeanDelta));
-            });
+            logOnUiThread(LogLevel.DEBUG,
+                    String.format("D: mean delta: %f %f", realMeanDelta, imagMeanDelta));
             // Recover signal
             float[] realReceivedSerialDataCorrected = new float[dataNum];
             float[] imagReceivedSerialDataCorrected = new float[dataNum];
@@ -700,26 +815,24 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                         imagReceivedSerialData[i] * realMeanDelta;
             }
             // Demodulate
-            int[] qpskDemodulatedData = SignalProcessing.qpskDemodulate(
+            int[] qpskDemodulatedData = pskMethod.demodulate(
                     realReceivedSerialDataCorrected, imagReceivedSerialDataCorrected);
             processData(qpskDemodulatedData);
         }
 
         private void processData(int[] data) {
-            runOnUiThread(() -> {
-                StringBuilder str = new StringBuilder();
-                for (int i: data) {
-                    str.append(i);
-                    str.append(' ');
-                }
-                log(String.format("data: %s", str.toString()));
-            });
+            StringBuilder str = new StringBuilder();
+            for (int i: data) {
+                str.append(i);
+                str.append(' ');
+            }
+            logOnUiThread(LogLevel.WARN, String.format("W: data: %s", str.toString()));
         }
 
         private void generatePilot(int length, Box<float[]> real, Box<float[]> imag) {
             // Use zero
             int[] input = new int[length];
-            SignalProcessing.qpskModulate(input, real, imag);
+            pskMethod.modulate(input, real, imag);
         }
 
         private String getBufferReadFailureReason(int errorCode) {
@@ -738,4 +851,11 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         }
     }
 
+    @SuppressWarnings("SameParameterValue")
+    private static int findInStringArray(String[] array, String value) {
+        for (int i = 0; i < array.length; ++i)
+            if (array[i].equals(value))
+                return i;
+        return -1;
+    }
 }

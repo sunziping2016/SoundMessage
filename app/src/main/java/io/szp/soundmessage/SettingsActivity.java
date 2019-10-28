@@ -11,8 +11,10 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.FragmentActivity;
 import androidx.preference.EditTextPreference;
+import androidx.preference.ListPreference;
 import androidx.preference.PreferenceFragmentCompat;
 import androidx.preference.PreferenceManager;
+import androidx.preference.SwitchPreferenceCompat;
 
 public class SettingsActivity extends AppCompatActivity {
 
@@ -35,6 +37,11 @@ public class SettingsActivity extends AppCompatActivity {
 
         private SharedPreferences preferences;
 
+        private SwitchPreferenceCompat drawTimePreference;
+        private SwitchPreferenceCompat drawStartXcorrPreference;
+        private SwitchPreferenceCompat drawEndXcorrPreference;
+
+        private ListPreference pskPreference;
         private EditTextPreference subcarrierNumPreference;
         private EditTextPreference pilotSubcarrierNumPreference;
         private EditTextPreference symbolLenPreference;
@@ -51,6 +58,8 @@ public class SettingsActivity extends AppCompatActivity {
         private EditTextPreference lagVarianceLimitPreference;
         private EditTextPreference symbolNumLimitPreference;
 
+        private EditTextPreference spaceFactorPreference;
+
         @SuppressWarnings({"LambdaCanBeReplacedWithAnonymous", "CodeBlock2Expr"})
         @Override
         public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -61,6 +70,12 @@ public class SettingsActivity extends AppCompatActivity {
             preferences = PreferenceManager.getDefaultSharedPreferences(activity);
             preferences.registerOnSharedPreferenceChangeListener(this);
 
+            drawTimePreference = findPreference(getString(R.string.draw_time_enabled_key));
+            drawStartXcorrPreference = findPreference(getString(
+                    R.string.draw_start_xcorr_enabled_key));
+            drawEndXcorrPreference = findPreference(getString(R.string.draw_end_xcorr_enabled_key));
+
+            pskPreference = findPreference(getString(R.string.psk_modulate_key));
             subcarrierNumPreference = findPreference(getString(R.string.subcarrier_num_key));
             pilotSubcarrierNumPreference = findPreference(
                     getString(R.string.pilot_subcarrier_num_key));
@@ -77,11 +92,17 @@ public class SettingsActivity extends AppCompatActivity {
 
             startEndThresholdPreference = findPreference(
                     getString(R.string.start_end_threshold_key));
-            lagVarianceLimitPreference = findPreference(getString(R.string.lag_variance_limit_key));
+            lagVarianceLimitPreference = findPreference(getString(R.string.lag_stdev_limit_key));
             symbolNumLimitPreference = findPreference(getString(R.string.symbol_num_limit_key));
+
+            spaceFactorPreference = findPreference(getString(R.string.space_factor_key));
 
             boolean receiverEnabled = preferences.getBoolean(
                     getString(R.string.receiver_enabled_key), true);
+            drawTimePreference.setEnabled(receiverEnabled);
+            drawStartXcorrPreference.setEnabled(receiverEnabled);
+            drawEndXcorrPreference.setEnabled(receiverEnabled);
+            pskPreference.setEnabled(!receiverEnabled);
             subcarrierNumPreference.setEnabled(!receiverEnabled);
             pilotSubcarrierNumPreference.setEnabled(!receiverEnabled);
             symbolLenPreference.setEnabled(!receiverEnabled);
@@ -142,6 +163,10 @@ public class SettingsActivity extends AppCompatActivity {
             symbolNumLimitPreference.setOnBindEditTextListener((EditText editText) -> {
                 editText.setInputType(InputType.TYPE_CLASS_NUMBER);
             });
+            spaceFactorPreference.setOnBindEditTextListener((EditText editText) -> {
+                editText.setInputType(InputType.TYPE_CLASS_NUMBER |
+                        InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            });
         }
 
         @Override
@@ -160,6 +185,10 @@ public class SettingsActivity extends AppCompatActivity {
         public void onSharedPreferenceChanged(SharedPreferences preferences, String key) {
             if (key.equals(getString(R.string.receiver_enabled_key))) {
                 boolean enabled = preferences.getBoolean(key, true);
+                drawTimePreference.setEnabled(enabled);
+                drawStartXcorrPreference.setEnabled(enabled);
+                drawEndXcorrPreference.setEnabled(enabled);
+                pskPreference.setEnabled(!enabled);
                 subcarrierNumPreference.setEnabled(!enabled);
                 pilotSubcarrierNumPreference.setEnabled(!enabled);
                 symbolLenPreference.setEnabled(!enabled);
@@ -195,15 +224,13 @@ public class SettingsActivity extends AppCompatActivity {
                 endPreambleNumPreference.setText(preferences.getString(key, "3"));
             } else if (key.equals(getString(R.string.start_end_threshold_key))) {
                 startEndThresholdPreference.setText(preferences.getString(key, "10"));
-            } else if (key.equals(getString(R.string.lag_variance_limit_key))) {
+            } else if (key.equals(getString(R.string.lag_stdev_limit_key))) {
                 lagVarianceLimitPreference.setText(preferences.getString(key, "10"));
             } else if (key.equals(getString(R.string.symbol_num_limit_key))) {
                 symbolNumLimitPreference.setText(preferences.getString(key, "16"));
+            } else if (key.equals(getString(R.string.space_factor_key))) {
+                spaceFactorPreference.setText(preferences.getString(key, "0"));
             }
-//            else if (key.equals(getString(R.string.subcarrier_num_key))) {
-//                // Write back when changed by MainActivity
-//                receiverBufferFactor.setText(preferences.getString(key, "2"));
-//            }
         }
     }
 

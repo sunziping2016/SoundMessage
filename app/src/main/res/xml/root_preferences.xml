@@ -29,11 +29,53 @@
             app:summaryOn="@string/receiver_enabled_on"
             app:title="@string/receiver_enabled_title" />
 
+        <ListPreference
+            app:defaultValue="error"
+            app:entries="@array/log_level_entries"
+            app:entryValues="@array/log_level_values"
+            app:iconSpaceReserved="false"
+            app:key="@string/log_level_key"
+            app:title="@string/log_level_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:iconSpaceReserved="false"
+            app:key="@string/draw_time_enabled_key"
+            app:summaryOff="@string/draw_time_enabled_off"
+            app:summaryOn="@string/draw_time_enabled_on"
+            app:title="@string/draw_time_enabled_title" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:iconSpaceReserved="false"
+            app:key="@string/draw_start_xcorr_enabled_key"
+            app:summaryOff="@string/draw_start_xcorr_enabled_off"
+            app:summaryOn="@string/draw_start_xcorr_enabled_on"
+            app:title="@string/draw_start_xcorr_enabled_title" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:iconSpaceReserved="false"
+            app:key="@string/draw_end_xcorr_enabled_key"
+            app:summaryOff="@string/draw_end_xcorr_enabled_off"
+            app:summaryOn="@string/draw_end_xcorr_enabled_on"
+            app:title="@string/draw_end_xcorr_enabled_title" />
+
     </PreferenceCategory>
 
     <PreferenceCategory
         app:iconSpaceReserved="false"
         app:title="@string/common_settings_header">
+
+        <ListPreference
+            app:defaultValue="4"
+            app:entries="@array/psk_entries"
+            app:entryValues="@array/psk_values"
+            app:iconSpaceReserved="false"
+            app:key="@string/psk_modulate_key"
+            app:title="@string/psk_modulate_title"
+            app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
             app:defaultValue="10"
@@ -121,8 +163,8 @@
         <EditTextPreference
             app:defaultValue="10"
             app:iconSpaceReserved="false"
-            app:key="@string/lag_variance_limit_key"
-            app:title="@string/lag_variance_limit_title"
+            app:key="@string/lag_stdev_limit_key"
+            app:title="@string/lag_stdev_limit_title"
             app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
@@ -130,6 +172,19 @@
             app:iconSpaceReserved="false"
             app:key="@string/symbol_num_limit_key"
             app:title="@string/symbol_num_limit_title"
+            app:useSimpleSummaryProvider="true" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/sender_settings_header">
+
+        <EditTextPreference
+            app:defaultValue="0"
+            app:iconSpaceReserved="false"
+            app:key="@string/space_factor_key"
+            app:title="@string/space_factor_title"
             app:useSimpleSummaryProvider="true" />
 
     </PreferenceCategory>

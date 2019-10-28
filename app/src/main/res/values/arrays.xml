@@ -1,2 +1,27 @@
 <resources>
+    <string-array name="log_level_entries">
+        <item>调试</item>
+        <item>信息</item>
+        <item>警告</item>
+        <item>错误</item>
+    </string-array>
+
+    <string-array name="log_level_values">
+        <item>debug</item>
+        <item>info</item>
+        <item>warn</item>
+        <item>error</item>
+    </string-array>
+
+    <string-array name="psk_entries">
+        <item>BPSK</item>
+        <item>QPSK</item>
+        <item>8-PSK</item>
+    </string-array>
+
+    <string-array name="psk_values">
+        <item>2</item>
+        <item>4</item>
+        <item>8</item>
+    </string-array>
 </resources>

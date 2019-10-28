@@ -4,7 +4,9 @@
       <w>chirq</w>
       <w>imag</w>
       <w>qpsk</w>
+      <w>stdev</w>
       <w>subcarrier</w>
+      <w>xcorr</w>
     </words>
   </dictionary>
 </component>
