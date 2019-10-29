@@ -39,13 +39,13 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     private static final int AUDIO_IN_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
     private static final int AUDIO_OUT_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
     private static final float SHORT_MAX = 32768;
-    private static final String START_SEND_TEXT = "sendText";
+    private static final String START_INPUT_TEXT = "inputText";
     private static final String START_CONTENT_TEXT = "contentText";
     private static final String[] LOG_LEVEL_STRINGS = new String[] {
             "error", "warn", "info", "debug"
     };
     private enum LogLevel { ERROR, WARN, INFO, DEBUG };
-    private static final float SOUND_AMPLIFIER = 200;
+    private static final float SOUND_AMPLIFIER = 300;
 
     // Default value
     // UI Parameter
@@ -113,7 +113,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
 
     private AtomicBoolean senderOn = new AtomicBoolean(false);
 
-    EditText sendText;
+    EditText inputText;
     TextView contentText;
     private PlotView plotView;
 
@@ -124,10 +124,10 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO},
                 REQUEST_RECORD_AUDIO_PERMISSION);
         setContentView(R.layout.activity_main);
-        sendText = findViewById(R.id.sendText);
+        inputText = findViewById(R.id.sendText);
         contentText = findViewById(R.id.contentText);
         if (savedInstanceState != null) {
-            sendText.setText(savedInstanceState.getString(START_SEND_TEXT, ""));
+            inputText.setText(savedInstanceState.getString(START_INPUT_TEXT, ""));
             contentText.setText(savedInstanceState.getString(START_CONTENT_TEXT, ""));
         }
         plotView = findViewById(R.id.plotView);
@@ -188,7 +188,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
 
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
-        outState.putString(START_SEND_TEXT, sendText.getText().toString());
+        outState.putString(START_INPUT_TEXT, inputText.getText().toString());
         outState.putString(START_CONTENT_TEXT, contentText.getText().toString());
         super.onSaveInstanceState(outState);
     }
@@ -224,13 +224,14 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     }
 
     @SuppressLint("SetTextI18n")
-    public void log(String text) {
-        contentText.setText(contentText.getText().toString() + text + '\n');
+    public void log(LogLevel level, String text) {
+        if (level.ordinal() <= logLevel.get())
+            contentText.setText(contentText.getText().toString() + text + '\n');
     }
 
     public void onSendButtonClick(View view) {
-        sendText.getText().clear();
-        sendData(new int[] {1,0,1,1,1,3,1,3});
+        sendText(inputText.getText().toString());
+        inputText.getText().clear();
     }
 
     // Default value
@@ -504,6 +505,18 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         }
     }
 
+    protected void sendText(String text) {
+        log(LogLevel.ERROR, String.format("Send packet: %s", text));
+        int[] result = SignalProcessing.encodeText(text, bits, dataSubcarrierNum);
+        StringBuilder str = new StringBuilder();
+        for (int i: result) {
+            str.append(i);
+            str.append(' ');
+        }
+        log(LogLevel.WARN, String.format("W: sender data: %s", str.toString()));
+        sendData(result);
+    }
+
     protected void sendData(int[] dataInput) {
         int dataNum = dataInput.length;
         int symbolNum = dataNum / dataSubcarrierNum;
@@ -721,8 +734,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
 
         @SuppressWarnings("LambdaCanBeReplacedWithAnonymous")
         private void logOnUiThread(LogLevel level, String content) {
-            if (level.ordinal() <= logLevel.get())
-                runOnUiThread(() -> log(content));
+            runOnUiThread(() -> log(level, content));
         }
 
         @SuppressLint("DefaultLocale")
@@ -997,6 +1009,12 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 str.append(' ');
             }
             logOnUiThread(LogLevel.WARN, String.format("W: receiver data: %s", str.toString()));
+            String text = SignalProcessing.decodeText(data, bits, dataSubcarrierNum);
+            if (text == null) {
+                logOnUiThread(LogLevel.ERROR, "Corrupted packet");
+            } else {
+                logOnUiThread(LogLevel.ERROR, String.format("Receive packet: %s", text));
+            }
         }
 
         private String getBufferReadFailureReason(int errorCode) {

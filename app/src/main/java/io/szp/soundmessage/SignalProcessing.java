@@ -1,5 +1,7 @@
 package io.szp.soundmessage;
 
+import java.nio.charset.StandardCharsets;
+import java.util.BitSet;
 import java.util.Deque;
 
 public class SignalProcessing {
@@ -172,13 +174,70 @@ public class SignalProcessing {
         }
     }
 
+    public static int[] encodeText(String text, int n, int subcarrierNum) {
+        byte[] textBytes = text.getBytes(StandardCharsets.UTF_8);
+        int byteNum = textBytes.length;
+        int encodedNum = (int) Math.round(Math.ceil((double) (byteNum + 8) * 8 / n));
+        int symbolNum = (int) Math.round(Math.ceil((double) encodedNum / subcarrierNum));
+        byte[] data = new byte[byteNum + 8];
+        System.arraycopy(textBytes, 0, data, 8, byteNum);
+        data[0] = (byte) (symbolNum & 0xff);
+        data[1] = (byte) ((symbolNum >> 8) & 0xff);
+        data[2] = (byte) ((symbolNum >> 16) & 0xff);
+        data[3] = (byte) ((symbolNum >> 24) & 0xff);
+        data[4] = (byte) (byteNum & 0xff);
+        data[5] = (byte) ((byteNum >> 8) & 0xff);
+        data[6] = (byte) ((byteNum >> 16) & 0xff);
+        data[7] = (byte) ((byteNum >> 24) & 0xff);
+        BitSet bits = BitSet.valueOf(data);
+        int[] result = new int[symbolNum * subcarrierNum];
+        for (int i = 0; i < symbolNum; ++i) {
+            for (int j = 0; j < subcarrierNum; ++j) {
+                int index = i * subcarrierNum + j;
+                long[] num = bits.get(index * n, (index + 1) * n).toLongArray();
+                if (num.length > 0)
+                    result[index] = (int) num[0];
+            }
+        }
+        return result;
+    }
+
+    public static String decodeText(int[] data, int n, int subcarrierNum) {
+        int symbolNum = data.length / subcarrierNum;
+        if (data.length != symbolNum * subcarrierNum)
+            return null;
+        BitSet bits = new BitSet();
+        for (int i = 0; i < data.length; ++i) {
+            int num = data[i];
+            for (int j = 0; j < n; ++j)
+                bits.set(n * i + j, ((num >> j) & 1) == 1);
+        }
+        byte[] bytes = bits.toByteArray();
+        if (bytes.length < 8)
+            return null;
+        int receivedSymbolNum = bytes[0] + ((int) bytes[1] << 8) +
+                ((int) bytes[2] << 16) + ((int) bytes[3] << 24);
+        if (receivedSymbolNum != symbolNum)
+            return null;
+        int byteNum = bytes[4] + ((int) bytes[5] << 8) +
+                ((int) bytes[6] << 16) + ((int) bytes[7] << 24);
+        byte[] textBytes = new byte[byteNum];
+        if (bytes.length - 8 >= byteNum)
+            System.arraycopy(bytes, 8, textBytes, 0, byteNum);
+        else
+            System.arraycopy(bytes, 8, textBytes, 0, bytes.length - 8);
+        return new String(textBytes, StandardCharsets.UTF_8);
+    }
+
     public static void main(String[] args) {
-        float[] x = new float[] {1,2,3,4,5};
-        float[] y = new float[] {2,1,3};
-        Box<float[]> cor = new Box<>();
-        Box<int[]> lags = new Box<>();
-        xcorr(x, y, cor, lags);
-        for (int i = 0; i < cor.value.length; ++i)
-            System.out.println(cor.value[i]);
+        int[] result = encodeText("你好", 3, 1);
+        String text = decodeText(result, 3, 1);
+        if (text == null) {
+            System.out.println("Wrong decode");
+            return;
+        }
+        System.out.println(text);
+//        for (int value : result)
+//            System.out.println(value);
     }
 }
