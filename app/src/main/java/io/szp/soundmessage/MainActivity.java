@@ -16,11 +16,11 @@ import android.media.AudioRecord;
 import android.media.AudioTrack;
 import android.media.MediaRecorder;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.ArrayDeque;
@@ -56,25 +56,25 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
 
     // Common Parameter
     public int pskModulate = 4;
-    public int subcarrierNum = 10;
-    public int pilotSubcarrierNum = 2;
+    public int subcarrierNum = 6;
+    public int pilotSubcarrierNum = 1;
     public int symbolLen = 2048;
     public float cyclicPrefixFactor = 0.1f;
 
     private float sampleFreq = 44100;
-    private float carrierFreq = 16000;
-    private float preambleLowFreq = 8000;
-    private float preambleHighFreq = 16000;
-    private int startPreambleNum = 3;
-    private int endPreambleNum = 3;
+    private float carrierFreq = 4000;
+    private float preambleLowFreq = 4000;
+    private float preambleHighFreq = 8000;
+    private int startPreambleNum = 6;
+    private int endPreambleNum = 6;
 
     // Receiver Parameter
     private float startEndThreshold = 10;
     private float lagStdevLimit = 10;
-    private int symbolNumLimit = 16;
+    private int symbolNumLimit = 100;
 
     // Sender Parameter
-    private float spaceFactor = 0;
+    private float spaceFactor = 1;
 
     // Computed parameter
     public int bits;
@@ -113,9 +113,11 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
 
     private AtomicBoolean senderOn = new AtomicBoolean(false);
 
-    EditText inputText;
-    TextView contentText;
+    private EditText inputText;
+    private TextView contentText;
     private PlotView plotView;
+    private ScrollView scrollView;
+
 
     // Default value
     @Override
@@ -131,6 +133,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             contentText.setText(savedInstanceState.getString(START_CONTENT_TEXT, ""));
         }
         plotView = findViewById(R.id.plotView);
+        scrollView = findViewById(R.id.scrollView);
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         preferences.registerOnSharedPreferenceChangeListener(this);
         logLevel.set(findInStringArray(LOG_LEVEL_STRINGS, preferences.getString(
@@ -145,9 +148,9 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         pskModulate = Integer.parseInt(preferences.getString(
                 getString(R.string.psk_modulate_key), "4"));
         subcarrierNum = Integer.parseInt(preferences.getString(
-                getString(R.string.subcarrier_num_key), "10"));
+                getString(R.string.subcarrier_num_key), "6"));
         pilotSubcarrierNum = Integer.parseInt(preferences.getString(
-                getString(R.string.pilot_subcarrier_num_key), "2"));
+                getString(R.string.pilot_subcarrier_num_key), "1"));
         symbolLen = Integer.parseInt(preferences.getString(
                 getString(R.string.symbol_len_key), "2048"));
         cyclicPrefixFactor = Float.parseFloat(preferences.getString(
@@ -155,23 +158,23 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         sampleFreq = Float.parseFloat(preferences.getString(
                 getString(R.string.sample_freq_key), "44100"));
         carrierFreq = Float.parseFloat(preferences.getString(
-                getString(R.string.carrier_freq_key), "16000"));
+                getString(R.string.carrier_freq_key), "4000"));
         preambleLowFreq = Float.parseFloat(preferences.getString(
-                getString(R.string.preamble_low_freq_key), "8000"));
+                getString(R.string.preamble_low_freq_key), "4000"));
         preambleHighFreq = Float.parseFloat(preferences.getString(
-                getString(R.string.preamble_high_freq_key), "16000"));
+                getString(R.string.preamble_high_freq_key), "8000"));
         startPreambleNum = Integer.parseInt(preferences.getString(
-                getString(R.string.start_preamble_num_key), "3"));
+                getString(R.string.start_preamble_num_key), "6"));
         endPreambleNum = Integer.parseInt(preferences.getString(
-                getString(R.string.end_preamble_num_key), "3"));
+                getString(R.string.end_preamble_num_key), "6"));
         startEndThreshold = Float.parseFloat(preferences.getString(
                 getString(R.string.start_end_threshold_key), "10"));
         lagStdevLimit = Float.parseFloat(preferences.getString(
                 getString(R.string.lag_stdev_limit_key), "10"));
         symbolNumLimit = Integer.parseInt(preferences.getString(
-                getString(R.string.symbol_num_limit_key), "16"));
+                getString(R.string.symbol_num_limit_key), "100"));
         spaceFactor = Float.parseFloat(preferences.getString(
-                getString(R.string.space_factor_key), "0"));
+                getString(R.string.space_factor_key), "1"));
         updateUIParameter();
         updateBufferSize();
         updateReceiverParameter();
@@ -227,6 +230,9 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     public void log(LogLevel level, String text) {
         if (level.ordinal() <= logLevel.get())
             contentText.setText(contentText.getText().toString() + text + '\n');
+        scrollView.post(() -> {
+            scrollView.fullScroll(ScrollView.FOCUS_DOWN);
+        });
     }
 
     public void onSendButtonClick(View view) {
@@ -237,7 +243,6 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     // Default value
     @Override
     public void onSharedPreferenceChanged(SharedPreferences preferences, String key) {
-        Log.d("MainActivity", key + " changed");
         if (key.equals(getString(R.string.receiver_enabled_key))) {
             setReceiverEnabled(preferences.getBoolean(key, true));
         } else if (key.equals(getString(R.string.log_level_key))) {
@@ -259,7 +264,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         } else if (key.equals(getString(R.string.subcarrier_num_key))) {
             boolean commitBack = false;
             try {
-                int newSubcarrierNum = Integer.parseInt(preferences.getString(key, "10"));
+                int newSubcarrierNum = Integer.parseInt(preferences.getString(key, "6"));
                 if (newSubcarrierNum <= pilotSubcarrierNum) {
                     subcarrierNum = pilotSubcarrierNum + 1;
                     commitBack = true;
@@ -281,7 +286,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         } else if(key.equals(getString(R.string.pilot_subcarrier_num_key))) {
             boolean commitBack = false;
             try {
-                int newPilotSubcarrierNum = Integer.parseInt(preferences.getString(key, "2"));
+                int newPilotSubcarrierNum = Integer.parseInt(preferences.getString(key, "1"));
                 if (newPilotSubcarrierNum < 1) {
                     pilotSubcarrierNum = 1;
                     commitBack = true;
@@ -357,7 +362,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         } else if (key.equals(getString(R.string.carrier_freq_key))) {
             boolean commitBack = false;
             try {
-                carrierFreq = Float.parseFloat(preferences.getString(key, "16000"));
+                carrierFreq = Float.parseFloat(preferences.getString(key, "4000"));
             } catch (NumberFormatException e) {
                 commitBack = true;
             }
@@ -370,7 +375,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         } else if (key.equals(getString(R.string.preamble_low_freq_key))) {
             boolean commitBack = false;
             try {
-                preambleLowFreq = Float.parseFloat(preferences.getString(key, "8000"));
+                preambleLowFreq = Float.parseFloat(preferences.getString(key, "4000"));
             } catch (NumberFormatException e) {
                 commitBack = true;
             }
@@ -383,7 +388,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         } else if (key.equals(getString(R.string.preamble_high_freq_key))) {
             boolean commitBack = false;
             try {
-                preambleHighFreq = Float.parseFloat(preferences.getString(key, "16000"));
+                preambleHighFreq = Float.parseFloat(preferences.getString(key, "8000"));
             } catch (NumberFormatException e) {
                 commitBack = true;
             }
@@ -396,7 +401,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         } else if (key.equals(getString(R.string.start_preamble_num_key))) {
             boolean commitBack = false;
             try {
-                int newStartPreambleNum = Integer.parseInt(preferences.getString(key, "3"));
+                int newStartPreambleNum = Integer.parseInt(preferences.getString(key, "6"));
                 if (newStartPreambleNum < 1) {
                     startPreambleNum = 1;
                     commitBack = true;
@@ -415,7 +420,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         } else if (key.equals(getString(R.string.end_preamble_num_key))) {
             boolean commitBack = false;
             try {
-                int newEndPreambleNum = Integer.parseInt(preferences.getString(key, "3"));
+                int newEndPreambleNum = Integer.parseInt(preferences.getString(key, "6"));
                 if (newEndPreambleNum < 1) {
                     endPreambleNum = 1;
                     commitBack = true;
@@ -460,7 +465,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         } else if (key.equals(getString(R.string.symbol_num_limit_key))) {
             boolean commitBack = false;
             try {
-                symbolNumLimit = Integer.parseInt(preferences.getString(key, "16"));
+                symbolNumLimit = Integer.parseInt(preferences.getString(key, "100"));
             } catch (NumberFormatException e) {
                 commitBack = true;
             }
@@ -473,7 +478,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         } else if (key.equals(getString(R.string.space_factor_key))) {
             boolean commitBack = false;
             try {
-                spaceFactor = Float.parseFloat(preferences.getString(key, "0"));
+                spaceFactor = Float.parseFloat(preferences.getString(key, "1"));
             } catch (NumberFormatException e) {
                 commitBack = true;
             }
@@ -894,7 +899,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             int realSignalLen = signalBuffer.length;
             int symbolNum = Math.round((float) realSignalLen / realSymbolLen);
             int expectedSignalLen = symbolNum * realSymbolLen;
-            logOnUiThread(LogLevel.DEBUG, String.format("D: real sig len: %d expected sig len: %d",
+            logOnUiThread(LogLevel.INFO, String.format("I: real len: %d expected len: %d",
                         realSignalLen, expectedSignalLen));
             if (realSignalLen == expectedSignalLen) {
                 processReceivedSignal(signalBuffer, symbolNum);
@@ -984,8 +989,11 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             }
             float realMeanDelta = SignalProcessing.mean(realDelta);
             float imagMeanDelta = SignalProcessing.mean(imagDelta);
-            logOnUiThread(LogLevel.DEBUG,
-                    String.format("D: mean delta: %f %f", realMeanDelta, imagMeanDelta));
+            logOnUiThread(LogLevel.INFO,
+                    String.format("I: abs: %f angle: %f",
+                            1 / Math.sqrt(realMeanDelta * realMeanDelta +
+                                    imagMeanDelta * imagMeanDelta),
+                            -Math.atan2(imagMeanDelta, realMeanDelta) / Math.PI * 180));
             // Recover signal
             float[] realReceivedSerialDataCorrected = new float[dataNum];
             float[] imagReceivedSerialDataCorrected = new float[dataNum];

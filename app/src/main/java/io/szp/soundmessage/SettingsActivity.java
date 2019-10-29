@@ -203,9 +203,9 @@ public class SettingsActivity extends AppCompatActivity {
                 lagVarianceLimitPreference.setEnabled(!enabled);
                 symbolNumLimitPreference.setEnabled(!enabled);
             } else if (key.equals(getString(R.string.subcarrier_num_key))) {
-                subcarrierNumPreference.setText(preferences.getString(key, "10"));
+                subcarrierNumPreference.setText(preferences.getString(key, "6"));
             } else if (key.equals(getString(R.string.pilot_subcarrier_num_key))) {
-                pilotSubcarrierNumPreference.setText(preferences.getString(key, "2"));
+                pilotSubcarrierNumPreference.setText(preferences.getString(key, "1"));
             } else if (key.equals(getString(R.string.symbol_len_key))) {
                 symbolLenPreference.setText(preferences.getString(key, "2048"));
             } else if (key.equals(getString(R.string.cyclic_prefix_factor_key))) {
@@ -213,23 +213,23 @@ public class SettingsActivity extends AppCompatActivity {
             } else if (key.equals(getString(R.string.sample_freq_key))) {
                 sampleFreqPreference.setText(preferences.getString(key, "44100"));
             } else if (key.equals(getString(R.string.carrier_freq_key))) {
-                carrierFreqPreference.setText(preferences.getString(key, "16000"));
+                carrierFreqPreference.setText(preferences.getString(key, "4000"));
             } else if (key.equals(getString(R.string.preamble_low_freq_key))) {
-                preambleLowFreqPreference.setText(preferences.getString(key, "8000"));
+                preambleLowFreqPreference.setText(preferences.getString(key, "4000"));
             } else if (key.equals(getString(R.string.preamble_high_freq_key))) {
-                preambleHighFreqPreference.setText(preferences.getString(key, "16000"));
+                preambleHighFreqPreference.setText(preferences.getString(key, "8000"));
             } else if (key.equals(getString(R.string.start_preamble_num_key))) {
-                startPreambleNumPreference.setText(preferences.getString(key, "3"));
+                startPreambleNumPreference.setText(preferences.getString(key, "6"));
             } else if (key.equals(getString(R.string.end_preamble_num_key))) {
-                endPreambleNumPreference.setText(preferences.getString(key, "3"));
+                endPreambleNumPreference.setText(preferences.getString(key, "6"));
             } else if (key.equals(getString(R.string.start_end_threshold_key))) {
                 startEndThresholdPreference.setText(preferences.getString(key, "10"));
             } else if (key.equals(getString(R.string.lag_stdev_limit_key))) {
                 lagVarianceLimitPreference.setText(preferences.getString(key, "10"));
             } else if (key.equals(getString(R.string.symbol_num_limit_key))) {
-                symbolNumLimitPreference.setText(preferences.getString(key, "16"));
+                symbolNumLimitPreference.setText(preferences.getString(key, "100"));
             } else if (key.equals(getString(R.string.space_factor_key))) {
-                spaceFactorPreference.setText(preferences.getString(key, "0"));
+                spaceFactorPreference.setText(preferences.getString(key, "1"));
             }
         }
     }

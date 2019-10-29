@@ -78,14 +78,14 @@
             app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
-            app:defaultValue="10"
+            app:defaultValue="6"
             app:iconSpaceReserved="false"
             app:key="@string/subcarrier_num_key"
             app:title="@string/subcarrier_num_title"
             app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
-            app:defaultValue="2"
+            app:defaultValue="1"
             app:iconSpaceReserved="false"
             app:key="@string/pilot_subcarrier_num_key"
             app:title="@string/pilot_subcarrier_num_title"
@@ -113,35 +113,35 @@
             app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
-            app:defaultValue="16000"
+            app:defaultValue="4000"
             app:iconSpaceReserved="false"
             app:key="@string/carrier_freq_key"
             app:title="@string/carrier_freq_title"
             app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
-            app:defaultValue="8000"
+            app:defaultValue="4000"
             app:iconSpaceReserved="false"
             app:key="@string/preamble_low_freq_key"
             app:title="@string/preamble_low_freq_title"
             app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
-            app:defaultValue="16000"
+            app:defaultValue="8000"
             app:iconSpaceReserved="false"
             app:key="@string/preamble_high_freq_key"
             app:title="@string/preamble_high_freq_title"
             app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
-            app:defaultValue="3"
+            app:defaultValue="6"
             app:iconSpaceReserved="false"
             app:key="@string/start_preamble_num_key"
             app:title="@string/start_preamble_num_title"
             app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
-            app:defaultValue="3"
+            app:defaultValue="6"
             app:iconSpaceReserved="false"
             app:key="@string/end_preamble_num_key"
             app:title="@string/end_preamble_num_title"
@@ -168,7 +168,7 @@
             app:useSimpleSummaryProvider="true" />
 
         <EditTextPreference
-            app:defaultValue="16"
+            app:defaultValue="100"
             app:iconSpaceReserved="false"
             app:key="@string/symbol_num_limit_key"
             app:title="@string/symbol_num_limit_title"
@@ -181,7 +181,7 @@
         app:title="@string/sender_settings_header">
 
         <EditTextPreference
-            app:defaultValue="0"
+            app:defaultValue="1"
             app:iconSpaceReserved="false"
             app:key="@string/space_factor_key"
             app:title="@string/space_factor_title"
