@@ -5,6 +5,8 @@ import java.util.BitSet;
 import java.util.Deque;
 
 public class SignalProcessing {
+    public static final int MAX_BYTE_NUM = 4096;
+
     public static final int[] FACTORS = new int[] { 2, 3, 5, 7 };
 
     public static float[] chirp(float f0, float f1, float[] t) {
@@ -98,14 +100,6 @@ public class SignalProcessing {
         return (float) Math.sqrt(sum / input.size());
     }
 
-    private static final float[] QPSK_PHASES = new float[] {
-            (float) (1 * Math.PI / 4),
-            (float) (7 * Math.PI / 4),
-            (float) (3 * Math.PI / 4),
-            (float) (5 * Math.PI / 4)
-    };
-    private static final int[] QPSK_INDEX = new int[] { 3, 1, 0, 2 };
-
     public interface PSK {
         void modulate(int[] input, Box<float[]> real, Box<float[]> imag);
         int[] demodulate(float[] real, float[] imag);
@@ -114,15 +108,30 @@ public class SignalProcessing {
     public static final PSK bpsk = new PSK() {
         @Override
         public void modulate(int[] input, Box<float[]> real, Box<float[]> imag) {
-            // TODO
+            real.value = new float[input.length];
+            imag.value = new float[input.length];
+            for (int i = 0; i < input.length; ++i) {
+                real.value[i] = input[i] == 0 ? 1 : -1;
+            }
         }
 
         @Override
         public int[] demodulate(float[] real, float[] imag) {
-            // TODO
-            return new int[0];
+            int[] result = new int[real.length];
+            for (int i = 0; i < real.length; ++i) {
+                result[i] = real[i] >= 0 ? 0 : 1;
+            }
+            return result;
         }
     };
+
+    private static final float[] QPSK_PHASES = new float[] {
+            (float) (1 * Math.PI / 4),
+            (float) (7 * Math.PI / 4),
+            (float) (3 * Math.PI / 4),
+            (float) (5 * Math.PI / 4)
+    };
+    private static final int[] QPSK_INDEX = new int[] { 3, 1, 0, 2 };
 
     public static final PSK qpsk = new PSK() {
         @Override
@@ -148,16 +157,40 @@ public class SignalProcessing {
         }
     };
 
+
+    private static final float[] PSK8_PHASES = new float[] {
+            (float) (5 * Math.PI / 4),
+            (float) (4 * Math.PI / 4),
+            (float) (2 * Math.PI / 4),
+            (float) (3 * Math.PI / 4),
+            (float) (6 * Math.PI / 4),
+            (float) (7 * Math.PI / 4),
+            (float) (1 * Math.PI / 4),
+            (float) (0 * Math.PI / 4)
+    };
+    private static final int[] PSK8_INDEX = new int[] { 1, 0, 4, 5, 7, 6, 2, 3, 1 };
+
     public static final PSK psk8 = new PSK() {
         @Override
         public void modulate(int[] input, Box<float[]> real, Box<float[]> imag) {
-            // TODO
+            real.value = new float[input.length];
+            imag.value = new float[input.length];
+            for (int i = 0; i < input.length; ++i) {
+                float phase = PSK8_PHASES[input[i]];
+                real.value[i] = (float) Math.cos(phase);
+                imag.value[i] = (float) Math.sin(phase);
+            }
         }
 
         @Override
         public int[] demodulate(float[] real, float[] imag) {
-            // TODO
-            return new int[0];
+            int[] result = new int[real.length];
+            for (int i = 0; i < real.length; ++i) {
+                int index = (int) Math.round((Math.atan2(imag[i], real[i]) +
+                        Math.PI) / (Math.PI/4));
+                result[i] = PSK8_INDEX[index];
+            }
+            return result;
         }
     };
 
@@ -213,14 +246,19 @@ public class SignalProcessing {
                 bits.set(n * i + j, ((num >> j) & 1) == 1);
         }
         byte[] bytes = bits.toByteArray();
-        if (bytes.length < 8)
-            return null;
+        if (bytes.length < 8) {
+            byte[] temp = new byte[8];
+            System.arraycopy(bytes, 0, temp, 0, bytes.length);
+            bytes = temp;
+        }
         int receivedSymbolNum = bytes[0] + ((int) bytes[1] << 8) +
                 ((int) bytes[2] << 16) + ((int) bytes[3] << 24);
         if (receivedSymbolNum != symbolNum)
             return null;
         int byteNum = bytes[4] + ((int) bytes[5] << 8) +
                 ((int) bytes[6] << 16) + ((int) bytes[7] << 24);
+        if (byteNum < 0 || byteNum > MAX_BYTE_NUM)
+            return null;
         byte[] textBytes = new byte[byteNum];
         if (bytes.length - 8 >= byteNum)
             System.arraycopy(bytes, 8, textBytes, 0, byteNum);
@@ -230,14 +268,13 @@ public class SignalProcessing {
     }
 
     public static void main(String[] args) {
-        int[] result = encodeText("你好", 3, 1);
-        String text = decodeText(result, 3, 1);
-        if (text == null) {
-            System.out.println("Wrong decode");
-            return;
-        }
-        System.out.println(text);
-//        for (int value : result)
-//            System.out.println(value);
+        Box<float[]> real = new Box<>();
+        Box<float[]> imag = new Box<>();
+        psk8.modulate(new int[] {
+                7, 0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 0, 3,2,1
+        }, real, imag);
+        int[] result = psk8.demodulate(real.value, imag.value);
+        for (int value : result)
+            System.out.println(value);
     }
 }
