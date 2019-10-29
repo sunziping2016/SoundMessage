@@ -11,7 +11,9 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioRecord;
+import android.media.AudioTrack;
 import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.util.Log;
@@ -32,16 +34,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class MainActivity extends AppCompatActivity implements SharedPreferences.OnSharedPreferenceChangeListener {
     private static final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
     private static final int SAMPLING_RATE_IN_HZ = 44100;
-    private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
-    private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
+    private static final int CHANNEL_IN_CONFIG = AudioFormat.CHANNEL_IN_MONO;
+    private static final int CHANNEL_OUT_CONFIG = AudioFormat.CHANNEL_OUT_MONO;
+    private static final int AUDIO_IN_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
+    private static final int AUDIO_OUT_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
     private static final float SHORT_MAX = 32768;
     private static final String START_SEND_TEXT = "sendText";
     private static final String START_CONTENT_TEXT = "contentText";
     private static final String[] LOG_LEVEL_STRINGS = new String[] {
             "error", "warn", "info", "debug"
     };
-    enum LogLevel { ERROR, WARN, INFO, DEBUG };
-
+    private enum LogLevel { ERROR, WARN, INFO, DEBUG };
+    private static final float SOUND_AMPLIFIER = 200;
 
     // Default value
     // UI Parameter
@@ -94,13 +98,20 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     private Deque<Integer> starts;
     private Deque<Integer> ends;
 
+    // Sender data
+    private final Object sendBufferMutex = new Object();
+    private float[] sendBuffer = new float[0];
+
     // Other fields
     private boolean permissionToRecordAccepted = false;
     private int receiverBufferSize;
+    private int senderBufferSize;
     private boolean receiverEnabled;
 
     private AudioRecord receiver;
     private AtomicBoolean receiverOn = new AtomicBoolean(false);
+
+    private AtomicBoolean senderOn = new AtomicBoolean(false);
 
     EditText sendText;
     TextView contentText;
@@ -162,7 +173,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         spaceFactor = Float.parseFloat(preferences.getString(
                 getString(R.string.space_factor_key), "0"));
         updateUIParameter();
-        updateReceiverBufferSize();
+        updateBufferSize();
         updateReceiverParameter();
         updateSenderParameter();
         setReceiverEnabled(preferences.getBoolean(getString(R.string.receiver_enabled_key), true));
@@ -218,8 +229,8 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
     }
 
     public void onSendButtonClick(View view) {
-        log(sendText.getText().toString());
         sendText.getText().clear();
+        sendData(new int[] {1,0,1,1,1,3,1,3});
     }
 
     // Default value
@@ -478,19 +489,175 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         if (receiverEnabled == enabled)
             return;
         receiverEnabled = enabled;
-        Thread receiverThread;
         if (enabled) {
             receiver = new AudioRecord(MediaRecorder.AudioSource.DEFAULT, SAMPLING_RATE_IN_HZ,
-                    CHANNEL_CONFIG, AUDIO_FORMAT, receiverBufferSize);
+                    CHANNEL_IN_CONFIG, AUDIO_IN_FORMAT, receiverBufferSize);
             receiver.startRecording();
             receiverOn.set(true);
-            receiverThread = new Thread(new ReceiverRunnable(), "Receiver Thread");
+            Thread receiverThread = new Thread(new ReceiverRunnable(), "Receiver Thread");
             receiverThread.start();
         } else {
             receiverOn.set(false);
             receiver.stop();
             receiver.release();
             receiver = null;
+        }
+    }
+
+    protected void sendData(int[] dataInput) {
+        int dataNum = dataInput.length;
+        int symbolNum = dataNum / dataSubcarrierNum;
+        if (dataNum != symbolNum * dataSubcarrierNum)
+            throw new AssertionError("Wrong data input size");
+        int pilotNum = symbolNum * pilotSubcarrierNum;
+        int[] pilotInput = generatePilot(pilotNum);
+        Box<float[]> realPSKModulatedData = new Box<>();
+        Box<float[]> imagPSKModulatedData = new Box<>();
+        pskMethod.modulate(dataInput, realPSKModulatedData, imagPSKModulatedData);
+        Box<float[]> realPSKModulatedPilot = new Box<>();
+        Box<float[]> imagPSKModulatedPilot = new Box<>();
+        pskMethod.modulate(pilotInput, realPSKModulatedPilot, imagPSKModulatedPilot);
+        float[][] realDataMatrix = new float[symbolNum][];
+        float[][] imagDataMatrix = new float[symbolNum][];
+        for (int i = 0; i < symbolNum; ++i) {
+            realDataMatrix[i] = new float[dataSubcarrierNum];
+            imagDataMatrix[i] = new float[dataSubcarrierNum];
+            System.arraycopy(realPSKModulatedData.value, i * dataSubcarrierNum,
+                    realDataMatrix[i], 0, dataSubcarrierNum);
+            System.arraycopy(imagPSKModulatedData.value, i * dataSubcarrierNum,
+                    imagDataMatrix[i], 0, dataSubcarrierNum);
+        }
+        float[][] realPilotMatrix = new float[symbolNum][];
+        float[][] imagPilotMatrix = new float[symbolNum][];
+        for (int i = 0; i < symbolNum; ++i) {
+            realPilotMatrix[i] = new float[pilotSubcarrierNum];
+            imagPilotMatrix[i] = new float[pilotSubcarrierNum];
+            System.arraycopy(realPSKModulatedPilot.value, i * pilotSubcarrierNum,
+                    realPilotMatrix[i], 0, pilotSubcarrierNum);
+            System.arraycopy(imagPSKModulatedPilot.value, i * pilotSubcarrierNum,
+                    imagPilotMatrix[i], 0, pilotSubcarrierNum);
+        }
+        float[][] realFullMatrix = new float[symbolNum][];
+        float[][] imagFullMatrix = new float[symbolNum][];
+        for (int i = 0; i < symbolNum; ++i) {
+            realFullMatrix[i] = new float[symbolLen];
+            imagFullMatrix[i] = new float[symbolLen];
+        }
+        for (int i = 0; i < dataSubcarrierNum; ++i) {
+            int subcarrierIndex = dataSubcarrierIndices[i];
+            for (int j = 0; j < symbolNum; ++j) {
+                realFullMatrix[j][subcarrierIndex] = realDataMatrix[j][i];
+                imagFullMatrix[j][subcarrierIndex] = imagDataMatrix[j][i];
+            }
+        }
+        for (int i = 0; i < pilotSubcarrierNum; ++i) {
+            int subcarrierIndex = pilotSubcarrierIndices[i];
+            for (int j = 0; j < symbolNum; ++j) {
+                realFullMatrix[j][subcarrierIndex] = realPilotMatrix[j][i];
+                imagFullMatrix[j][subcarrierIndex] = imagPilotMatrix[j][i];
+            }
+        }
+        float[][] realIFFTData = new float[symbolNum][];
+        float[][] imagIFFTData = new float[symbolNum][];
+        for (int i = 0; i < symbolNum; ++i) {
+            FFT.ifft(realFullMatrix[i], imagFullMatrix[i]);
+            realIFFTData[i] = new float[realSymbolLen];
+            System.arraycopy(realFullMatrix[i], cyclicPrefixStart,
+                    realIFFTData[i], 0, cyclicPrefixLen);
+            System.arraycopy(realFullMatrix[i], 0, realIFFTData[i], cyclicPrefixLen, symbolLen);
+            imagIFFTData[i] = new float[realSymbolLen];
+            System.arraycopy(imagFullMatrix[i], cyclicPrefixStart,
+                    imagIFFTData[i], 0, cyclicPrefixLen);
+            System.arraycopy(imagFullMatrix[i], 0, imagIFFTData[i], cyclicPrefixLen, symbolLen);
+        }
+        float[] realOFDMSignal = new float[realSymbolLen * symbolNum];
+        float[] imagOFDMSignal = new float[realSymbolLen * symbolNum];
+        for (int i = 0; i < symbolNum; ++i) {
+            System.arraycopy(realIFFTData[i], 0, realOFDMSignal, i * realSymbolLen, realSymbolLen);
+            System.arraycopy(imagIFFTData[i], 0, imagOFDMSignal, i * realSymbolLen, realSymbolLen);
+        }
+        float[] tx = new float[realSymbolLen * symbolNum];
+        for (int i = 0; i < realOFDMSignal.length; ++i) {
+            float t = i / sampleFreq;
+            float x = (float) (2 * Math.PI * carrierFreq * t);
+            float realFactor = (float) Math.cos(x);
+            float imagFactor = (float) Math.sin(x);
+            tx[i] = realOFDMSignal[i] * realFactor - imagOFDMSignal[i] * imagFactor;
+        }
+        float[] realTx = new float[realSymbolLen * (startPreambleNum + symbolNum + endPreambleNum)];
+        for (int i = 9; i < tx.length; ++i)
+            realTx[startPreambleNum * realSymbolLen + i] = SOUND_AMPLIFIER * tx[i];
+        for (int i = 0; i < startPreambleNum; ++i)
+            System.arraycopy(startPreambleSymbol, 0, realTx, i * realSymbolLen, realSymbolLen);
+        for (int i = 0; i < endPreambleNum; ++i)
+            System.arraycopy(endPreambleSymbol, 0, realTx,
+                    (startPreambleNum + symbolNum + i) * realSymbolLen, realSymbolLen);
+        int space = Math.round(realSymbolLen * spaceFactor);
+        float[] sound = new float[2 * space + realTx.length];
+        System.arraycopy(realTx, 0, sound, space, realTx.length);
+        sendSound(sound);
+    }
+
+    protected void sendSound(float[] sound) {
+        synchronized (sendBufferMutex) {
+            float[] newSendBuffer = new float[sendBuffer.length + sound.length];
+            System.arraycopy(sendBuffer, 0, newSendBuffer, 0, sendBuffer.length);
+            System.arraycopy(sound, 0, newSendBuffer, sendBuffer.length, sound.length);
+            sendBuffer = newSendBuffer;
+        }
+        if (!senderOn.get()) {
+            Thread senderThread = new Thread(new SenderRunnable(), "Sender Thread");
+            senderThread.start();
+        }
+    }
+
+    private class SenderRunnable implements Runnable {
+
+        @Override
+        public void run() {
+            AudioTrack sender = new AudioTrack(AudioManager.STREAM_MUSIC, SAMPLING_RATE_IN_HZ,
+                    CHANNEL_OUT_CONFIG, AUDIO_OUT_FORMAT, senderBufferSize, AudioTrack.MODE_STREAM);
+            sender.play();
+            while (true) {
+                short[] data;
+                synchronized (sendBufferMutex) {
+                    if (sendBuffer.length == 0) {
+                        senderOn.set(false);
+                        break;
+                    } else {
+                        data = new short[sendBuffer.length];
+                        for (int i = 0; i < sendBuffer.length; ++i)
+                            data[i] = (short) Math.round(sendBuffer[i] * 0.8 * SHORT_MAX);
+                        sendBuffer = new float[0];
+                    }
+                }
+                int write = 0;
+                while (write != data.length) {
+                    int result = sender.write(data, write, data.length);
+                    if (result < 0)
+                        throw new RuntimeException("Error when writing audio: " +
+                                getBufferWriteFailureReason(result) + ")");
+                    write += result;
+                }
+
+            }
+            sender.stop();
+            sender.release();
+        }
+
+        private String getBufferWriteFailureReason(int errorCode) {
+            switch (errorCode) {
+                case AudioRecord.ERROR_INVALID_OPERATION:
+                    return "ERROR_INVALID_OPERATION";
+                case AudioRecord.ERROR_BAD_VALUE:
+                    return "ERROR_BAD_VALUE";
+                case AudioRecord.ERROR_DEAD_OBJECT:
+                    return "ERROR_DEAD_OBJECT";
+                case AudioRecord.ERROR:
+                    return "ERROR";
+                default:
+                    return "Unknown (" + errorCode + ")";
+            }
         }
     }
 
@@ -543,9 +710,11 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         // Do nothing
     }
 
-    protected void updateReceiverBufferSize() {
+    protected void updateBufferSize() {
         receiverBufferSize = AudioRecord.getMinBufferSize(SAMPLING_RATE_IN_HZ,
-                CHANNEL_CONFIG, AUDIO_FORMAT);
+                CHANNEL_IN_CONFIG, AUDIO_IN_FORMAT);
+        senderBufferSize = AudioTrack.getMinBufferSize(SAMPLING_RATE_IN_HZ,
+                CHANNEL_OUT_CONFIG, AUDIO_IN_FORMAT);
     }
 
     private class ReceiverRunnable implements Runnable {
@@ -786,19 +955,20 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 }
             }
             // Calculate signal shift
-            Box<float[]> realQPSKModulatedPilot = new Box<>();
-            Box<float[]> imagQPSKModulatedPilot = new Box<>();
-            generatePilot(pilotNum, realQPSKModulatedPilot, imagQPSKModulatedPilot);
+            Box<float[]> realPSKModulatedPilot = new Box<>();
+            Box<float[]> imagPSKModulatedPilot = new Box<>();
+            int[] pilotInput = generatePilot(pilotNum);
+            pskMethod.modulate(pilotInput, realPSKModulatedPilot, imagPSKModulatedPilot);
             float[] realDelta = new float[pilotNum];
             float[] imagDelta = new float[pilotNum];
-            // delta = QPSKModulatedPilot / receivedSerialPilot
+            // delta = PSKModulatedPilot / receivedSerialPilot
             for (int i = 0; i < pilotNum; ++i) {
                 float factor = 1 / (realReceivedSerialPilot[i] * realReceivedSerialPilot[i] +
                         imagReceivedSerialPilot[i] * imagReceivedSerialPilot[i]);
-                realDelta[i] = factor * (realQPSKModulatedPilot.value[i] * realReceivedSerialPilot[i] +
-                        imagQPSKModulatedPilot.value[i] * imagReceivedSerialPilot[i]);
-                imagDelta[i] = factor * (imagQPSKModulatedPilot.value[i] * realReceivedSerialPilot[i] -
-                        realQPSKModulatedPilot.value[i] * imagReceivedSerialPilot[i]);
+                realDelta[i] = factor * (realPSKModulatedPilot.value[i] * realReceivedSerialPilot[i] +
+                        imagPSKModulatedPilot.value[i] * imagReceivedSerialPilot[i]);
+                imagDelta[i] = factor * (imagPSKModulatedPilot.value[i] * realReceivedSerialPilot[i] -
+                        realPSKModulatedPilot.value[i] * imagReceivedSerialPilot[i]);
             }
             float realMeanDelta = SignalProcessing.mean(realDelta);
             float imagMeanDelta = SignalProcessing.mean(imagDelta);
@@ -815,9 +985,9 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                         imagReceivedSerialData[i] * realMeanDelta;
             }
             // Demodulate
-            int[] qpskDemodulatedData = pskMethod.demodulate(
+            int[] pskDemodulatedData = pskMethod.demodulate(
                     realReceivedSerialDataCorrected, imagReceivedSerialDataCorrected);
-            processData(qpskDemodulatedData);
+            processData(pskDemodulatedData);
         }
 
         private void processData(int[] data) {
@@ -826,13 +996,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 str.append(i);
                 str.append(' ');
             }
-            logOnUiThread(LogLevel.WARN, String.format("W: data: %s", str.toString()));
-        }
-
-        private void generatePilot(int length, Box<float[]> real, Box<float[]> imag) {
-            // Use zero
-            int[] input = new int[length];
-            pskMethod.modulate(input, real, imag);
+            logOnUiThread(LogLevel.WARN, String.format("W: receiver data: %s", str.toString()));
         }
 
         private String getBufferReadFailureReason(int errorCode) {
@@ -849,6 +1013,11 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                     return "Unknown (" + errorCode + ")";
             }
         }
+    }
+
+    private static int[] generatePilot(int length) {
+        // Use zero
+        return new int[length];
     }
 
     @SuppressWarnings("SameParameterValue")
